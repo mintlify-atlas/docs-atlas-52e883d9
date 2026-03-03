@@ -1,0 +1,185 @@
+---
+title: Introduction
+description: EPR LAPS Backend API - Core delivery platform for managing bank details and financial documents
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.png"
+  alt="Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.png"
+  alt="Hero Dark"
+/>
+
+## Welcome to EPR LAPS Backend API
+
+The EPR LAPS Backend is a Node.js API service built on the Hapi framework, designed for managing local authority payment scheme data including bank details verification and financial document management.
+
+<CardGroup cols={2}>
+  <Card
+    title="Bank Details API"
+    icon="building-columns"
+    href="#bank-details-endpoints"
+  >
+    Secure endpoints for managing and verifying local authority bank details with role-based access control
+  </Card>
+  <Card
+    title="Documents API"
+    icon="file-invoice"
+    href="#documents-endpoints"
+  >
+    Retrieve financial document metadata and access payment-related documents for local authorities
+  </Card>
+  <Card
+    title="Authentication"
+    icon="shield-halved"
+    href="#authentication"
+  >
+    JWT-based authentication with Defra ID integration and fine-grained permission controls
+  </Card>
+  <Card
+    title="Deployment"
+    icon="rocket"
+    href="#docker-deployment"
+  >
+    Production-ready Docker containers with Docker Compose for local development environments
+  </Card>
+</CardGroup>
+
+## Bank Details Endpoints
+
+The API provides comprehensive bank details management with encrypted storage and role-based access:
+
+<CodeGroup>
+```bash GET /bank-details/{localAuthority}
+curl http://localhost:3001/bank-details/LA123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+```bash PUT /bank-details
+curl -X PUT http://localhost:3001/bank-details \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "confirmed": true,
+    "requesterEmail": "user@example.com",
+    "organizationId": "org-123"
+  }'
+```
+
+```bash POST /bank-details
+curl -X POST http://localhost:3001/bank-details \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "localAuthority": "LA123",
+    "accountName": "Local Authority Account",
+    "sortCode": "12-34-56",
+    "accountNumber": "12345678",
+    "requesterEmail": "user@example.com",
+    "jpp": "payment-plan-id",
+    "organizationId": "org-123"
+  }'
+```
+</CodeGroup>
+
+<Note>
+  Bank details are encrypted using the FSS encryption key configured via `FSS_API_ENCRYPTION_KEY` environment variable.
+</Note>
+
+## Documents Endpoints
+
+Access financial documents and metadata for local authorities:
+
+<CodeGroup>
+```bash GET /documents/{localAuthority}
+curl http://localhost:3001/documents/LA123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+```bash GET /document/{id}
+curl http://localhost:3001/document/doc-abc-123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+</CodeGroup>
+
+## Authentication
+
+The API uses JWT authentication with Defra ID integration:
+
+```javascript
+// Configuration in config.js
+auth: {
+  discoveryUrl: 'http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration',
+  issuer: 'http://localhost:3200/cdp-defra-id-stub'
+}
+```
+
+### Role-Based Permissions
+
+Access control is enforced through role-based permissions:
+
+- **CEO**: Full access to view, create, and confirm bank details; access all documents
+- **WO**: Can confirm bank details and access documents
+
+<Warning>
+  Ensure proper role configuration via environment variables: `VIEW_FULL_BANK_DETAILS`, `CONFIRM_BANK_DETAILS`, `CREATE_BANK_DETAILS`, `LIST_FINANCE_DOCUMENTS`, and `ACCESS_FINANCE_DOCUMENT`.
+</Warning>
+
+## Docker Deployment
+
+The API is containerized and ready for production deployment:
+
+```bash
+# Production build
+docker build --no-cache --tag epr-laps-backend .
+
+# Run production container
+docker run -e PORT=3001 -p 3001:3001 epr-laps-backend
+```
+
+### Local Development Stack
+
+Use Docker Compose for a complete local environment with MongoDB, Redis, and Localstack:
+
+```bash
+docker compose up --build -d
+```
+
+This starts:
+- EPR LAPS Backend API
+- MongoDB database
+- Redis cache
+- Localstack (S3, SQS)
+
+## Core Technologies
+
+- **Framework**: Hapi.js 21.4.6
+- **Runtime**: Node.js >= 22.16.0
+- **Database**: MongoDB with connection pooling
+- **Authentication**: JWT with hapi-auth-jwt2
+- **Logging**: Pino with ECS formatting
+- **Validation**: Joi schemas
+- **Testing**: Vitest with coverage
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="bolt"
+    href="/quickstart"
+  >
+    Get the API running locally in minutes
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Detailed installation and configuration guide
+  </Card>
+</CardGroup>

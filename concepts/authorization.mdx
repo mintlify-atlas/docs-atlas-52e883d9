@@ -1,0 +1,301 @@
+---
+title: Authorization
+description: Role-based access control and permission management
+---
+
+## Overview
+
+After authentication, the EPR LAPS Backend API applies **role-based access control (RBAC)** to determine if a user has permission to perform specific operations. Authorization is implemented as a Hapi plugin that intercepts requests using the `onPostAuth` lifecycle hook.
+
+## How Authorization Works
+
+The access control plugin (`src/plugins/access-control.js`) runs after JWT authentication completes and checks if the user's role has permission to access the requested endpoint.
+
+### Authorization Flow
+
+1. **Request authenticated** - JWT validated and credentials extracted
+2. **Role mapped** - User's role mapped to internal role code
+3. **Permission checked** - Route mapped to permission requirement
+4. **Access decision** - User's role compared against allowed roles
+5. **Flag set** - `request.auth.isAuthorized` set to `true` or `false`
+
+<Note>
+The authorization plugin sets a flag but does not reject requests. Route handlers must check `request.auth.isAuthorized` and respond accordingly.
+</Note>
+
+## Role Mapping
+
+User roles from Defra ID are mapped to internal role codes (`src/plugins/access-control.js:11-17`):
+
+```javascript
+const rolesMap = {
+  'Chief Executive Officer': 'CEO',
+  'Head of Finance': 'HOF',
+  'Head of Waste': 'HOW',
+  'Waste Officer': 'WO',
+  'Finance Officer': 'FO'
+}
+```
+
+### Supported Roles
+
+| Role Name | Code | Typical Permissions |
+|-----------|------|---------------------|
+| Chief Executive Officer | CEO | Full access to all operations |
+| Head of Finance | HOF | Financial operations |
+| Head of Waste | HOW | Waste management operations |
+| Waste Officer | WO | Limited waste operations |
+| Finance Officer | FO | Limited financial operations |
+
+## Permission Model
+
+Each API operation is mapped to a permission key (`src/plugins/access-control.js:3-9`):
+
+```javascript
+const routePermissionMap = {
+  'GET /bank-details/{localAuthority}': 'viewFullBankDetails',
+  'PUT /bank-details': 'confirmBankDetails',
+  'GET /documents/{localAuthority}': 'listFinanceDocuments',
+  'GET /document/{id}': 'accessFinanceDocument',
+  'POST /bank-details': 'createBankDetails'
+}
+```
+
+### Permission to Role Mapping
+
+Permissions are configured in `src/config.js:171-202` with environment variable overrides:
+
+<CodeGroup>
+```javascript viewFullBankDetails
+viewFullBankDetails: {
+  doc: 'Permission roles allowed to view full bank details',
+  format: Array,
+  env: 'VIEW_FULL_BANK_DETAILS',
+  default: ['CEO']
+}
+```
+
+```javascript confirmBankDetails
+confirmBankDetails: {
+  doc: 'Permission roles allowed to confirm bank details',
+  format: Array,
+  env: 'CONFIRM_BANK_DETAILS',
+  default: ['CEO', 'WO']
+}
+```
+
+```javascript createBankDetails
+createBankDetails: {
+  doc: 'Permission roles allowed to create bank details',
+  format: Array,
+  env: 'CREATE_BANK_DETAILS',
+  default: ['CEO']
+}
+```
+</CodeGroup>
+
+## Authorization Plugin Implementation
+
+The access control plugin uses Hapi's `onPostAuth` extension point (`src/plugins/access-control.js:30-48`):
+
+```javascript
+server.ext('onPostAuth', (request, h) => {
+  const authorizationConfig = config.get('authorization')
+  const rawRole = request.auth.credentials.role
+  const userRole = rolesMap[rawRole]
+  const key = `${request.method.toUpperCase()} ${request.route.path}`
+  const permissionKey = routePermissionMap[key]
+
+  const allowedRoles = authorizationConfig[permissionKey]
+
+  if (!permissionKey) {
+    return h.continue
+  }
+  
+  const hasPermission = allowedRoles.includes(userRole)
+  request.logger.debug(
+    `Access control check for ${rawRole} on ${permissionKey}: ${key} permission granted: ${hasPermission}`
+  )
+  request.auth.isAuthorized = hasPermission
+  return h.continue
+})
+```
+
+### Key Points
+
+- **Route matching** - Matches `METHOD /path` format
+- **No permission key** - If route not in map, request continues (no authorization check)
+- **Debug logging** - Logs authorization decisions for auditing
+- **Non-blocking** - Sets flag but doesn't reject request
+
+<Warning>
+Routes without a permission mapping in `routePermissionMap` will bypass authorization checks.
+</Warning>
+
+## Ignored Routes
+
+Certain routes bypass authorization checks entirely (`src/plugins/access-control.js:22-27`):
+
+```javascript
+server.ext('onRequest', (request, h) => {
+  const ignoredRoutes = ['/health']
+  if (ignoredRoutes.includes(request.path)) {
+    return h.continue
+  }
+  return h.continue
+})
+```
+
+## Using Authorization in Routes
+
+Route handlers should check the `isAuthorized` flag:
+
+```javascript
+server.route({
+  method: 'GET',
+  path: '/bank-details/{localAuthority}',
+  handler: async (request, h) => {
+    // Check authorization
+    if (!request.auth.isAuthorized) {
+      return h.response({ message: 'Forbidden' }).code(403)
+    }
+
+    // User is authorized, proceed with operation
+    const { currentOrganisation } = request.auth.credentials
+    // ...
+  }
+})
+```
+
+<Info>
+Always check `request.auth.isAuthorized` before performing sensitive operations, even if the route is protected.
+</Info>
+
+## Permission Matrix
+
+Here's the complete default permission matrix:
+
+| Permission | CEO | HOF | HOW | WO | FO |
+|------------|-----|-----|-----|----|----|----|
+| View Full Bank Details | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Confirm Bank Details | ✓ | ✗ | ✗ | ✓ | ✗ |
+| Create Bank Details | ✓ | ✗ | ✗ | ✗ | ✗ |
+| List Finance Documents | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Access Finance Document | ✓ | ✗ | ✗ | ✗ | ✗ |
+
+<Accordion title="Customizing Permissions via Environment Variables">
+You can override default permissions using environment variables:
+
+```bash
+# Allow HOF and CEO to view bank details
+export VIEW_FULL_BANK_DETAILS='["CEO", "HOF"]'
+
+# Allow WO and HOW to confirm bank details
+export CONFIRM_BANK_DETAILS='["CEO", "WO", "HOW"]'
+```
+
+Note: Values must be valid JSON arrays.
+</Accordion>
+
+## Adding New Permissions
+
+To add a new permission:
+
+### 1. Add Route Permission Mapping
+
+In `src/plugins/access-control.js`:
+
+```javascript
+const routePermissionMap = {
+  // ... existing mappings
+  'POST /my-new-endpoint': 'myNewPermission'
+}
+```
+
+### 2. Add Permission Configuration
+
+In `src/config.js` authorization section:
+
+```javascript
+authorization: {
+  // ... existing permissions
+  myNewPermission: {
+    doc: 'Roles allowed to access my new endpoint',
+    format: Array,
+    env: 'MY_NEW_PERMISSION',
+    default: ['CEO']
+  }
+}
+```
+
+### 3. Implement Authorization Check
+
+In your route handler:
+
+```javascript
+server.route({
+  method: 'POST',
+  path: '/my-new-endpoint',
+  handler: async (request, h) => {
+    if (!request.auth.isAuthorized) {
+      return h.response({ message: 'Forbidden' }).code(403)
+    }
+    // Handle authorized request
+  }
+})
+```
+
+## Testing Authorization
+
+<CodeGroup>
+```bash Authorized Request
+curl -H "Authorization: Bearer $CEO_TOKEN" \
+  http://localhost:3001/bank-details/Birmingham
+
+# Response: 200 OK
+```
+
+```bash Unauthorized Request
+curl -H "Authorization: Bearer $WO_TOKEN" \
+  http://localhost:3001/bank-details/Birmingham
+
+# Response: 403 Forbidden
+```
+</CodeGroup>
+
+## Security Considerations
+
+<Warning>
+**Important Security Practices:**
+- Always validate `request.auth.isAuthorized` in route handlers
+- Use the principle of least privilege when assigning roles
+- Audit authorization failures regularly
+- Never trust client-side role information
+- Implement organization-based isolation where needed
+</Warning>
+
+## Organization-Level Isolation
+
+In addition to role-based checks, consider implementing organization-level isolation:
+
+```javascript
+handler: async (request, h) => {
+  if (!request.auth.isAuthorized) {
+    return h.response({ message: 'Forbidden' }).code(403)
+  }
+
+  const { currentOrganisation } = request.auth.credentials
+  const { localAuthority } = request.params
+
+  // Ensure user can only access their own organization's data
+  if (currentOrganisation !== localAuthority) {
+    return h.response({ message: 'Forbidden' }).code(403)
+  }
+
+  // Proceed with request
+}
+```
+
+<Info>
+This pattern ensures users can only access resources belonging to their current organization, even if they have the required role.
+</Info>

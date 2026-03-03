@@ -1,0 +1,151 @@
+---
+title: Local Development Setup
+description: Get started with local development of EPR LAPS Backend API
+---
+
+## Requirements
+
+### Node.js
+
+The EPR LAPS Backend requires **Node.js >= v22.16.0** and **npm >= v11**.
+
+<Tip>
+We recommend using [Node Version Manager (nvm)](https://github.com/creationix/nvm) to manage Node.js versions.
+</Tip>
+
+<Steps>
+  <Step title="Install Node.js">
+    Install Node.js v22 or higher using nvm:
+    
+    ```bash
+    nvm install 22
+    ```
+  </Step>
+
+  <Step title="Use the correct Node version">
+    Navigate to the project directory and use the correct Node.js version:
+    
+    ```bash
+    cd epr-laps-backend
+    nvm use
+    ```
+    
+    This reads the `.nvmrc` file in the project root and switches to the specified Node.js version.
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all application dependencies:
+    
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    Run the application in development mode:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    The server will start with hot-reloading enabled on port **3001** by default.
+  </Step>
+</Steps>
+
+## Available NPM Scripts
+
+<Note>
+All npm scripts are defined in `package.json`. Run `npm run` to see all available commands.
+</Note>
+
+### Development Scripts
+
+<CodeGroup>
+```bash Development
+npm run dev
+```
+
+```bash Development with Debug
+npm run dev:debug
+```
+
+```bash Docker Development
+npm run docker:dev
+```
+</CodeGroup>
+
+- **`npm run dev`** - Runs the server in development mode with hot-reloading (`NODE_ENV=development`)
+- **`npm run dev:debug`** - Runs with inspector enabled for debugging at `0.0.0.0` with breakpoint
+- **`npm run docker:dev`** - Alias for `npm run dev` used in Docker containers
+
+### Production Scripts
+
+```bash
+npm start
+```
+
+Runs the application in production mode (`NODE_ENV=production`) with strict mode enabled.
+
+### Code Quality Scripts
+
+<CodeGroup>
+```bash Format
+npm run format
+```
+
+```bash Format Check
+npm run format:check
+```
+
+```bash Lint
+npm run lint
+```
+
+```bash Lint Fix
+npm run lint:fix
+```
+</CodeGroup>
+
+- **`npm run format`** - Formats all `.cjs`, `.js`, `.json`, and `.md` files using Prettier
+- **`npm run format:check`** - Checks formatting without making changes
+- **`npm run lint`** - Lints all JavaScript files using ESLint with caching
+- **`npm run lint:fix`** - Auto-fixes linting issues where possible
+
+### Git Hooks
+
+```bash
+npm run git:pre-commit-hook
+```
+
+Runs format checking and linting before commits. This is automatically configured via Husky.
+
+## Windows Development
+
+<Warning>
+If you experience line break formatting issues on Windows, update your global Git configuration:
+
+```bash
+git config --global core.autocrlf false
+```
+</Warning>
+
+## Update Dependencies
+
+To update project dependencies, use [npm-check-updates](https://github.com/raineorshine/npm-check-updates):
+
+```bash
+ncu --interactive --format group
+```
+
+This allows you to interactively select which dependencies to update, grouped by update type (major, minor, patch).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/development/configuration">
+    Learn about configuration options using convict
+  </Card>
+  <Card title="Testing" icon="flask" href="/development/testing">
+    Run tests and generate coverage reports
+  </Card>
+</CardGroup>

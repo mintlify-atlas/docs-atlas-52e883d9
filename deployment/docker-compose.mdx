@@ -1,0 +1,405 @@
+---
+title: Docker Compose Setup
+description: Run the EPR LAPS Backend with all dependencies using Docker Compose
+---
+
+Docker Compose provides a complete local development environment with all required services and dependencies.
+
+## Overview
+
+The `compose.yml` file defines a multi-service environment that includes:
+
+- **LocalStack**: AWS services emulation (S3, SQS, SNS, Firehose)
+- **Redis**: In-memory data store
+- **MongoDB**: Document database
+- **epr-laps-backend**: The main application service
+
+## Quick Start
+
+<Steps>
+  <Step title="Start all services">
+    Build and start all services in detached mode:
+
+    ```bash
+    docker compose up --build -d
+    ```
+
+    This will:
+    - Build the epr-laps-backend image from the local Dockerfile
+    - Pull required images (LocalStack, Redis, MongoDB)
+    - Create the `cdp-tenant` network
+    - Start all services with health checks
+  </Step>
+
+  <Step title="Verify services are running">
+    Check the status of all services:
+
+    ```bash
+    docker compose ps
+    ```
+
+    All services should show a status of "Up" or "Up (healthy)".
+  </Step>
+
+  <Step title="View logs">
+    View logs from all services:
+
+    ```bash
+    docker compose logs -f
+    ```
+
+    Or view logs from a specific service:
+
+    ```bash
+    docker compose logs -f epr-laps-backend
+    ```
+  </Step>
+
+  <Step title="Stop services">
+    Stop all running services:
+
+    ```bash
+    docker compose down
+    ```
+
+    To remove volumes as well:
+
+    ```bash
+    docker compose down -v
+    ```
+  </Step>
+</Steps>
+
+## Service Configuration
+
+### LocalStack
+
+Emulates AWS services for local development.
+
+<ParamField path="Image" type="string" default="localstack/localstack:3.0.2">
+  Official LocalStack image
+</ParamField>
+
+<ParamField path="Ports" type="array">
+  - `4566`: LocalStack Gateway (main endpoint)
+  - `4510-4559`: External services port range
+</ParamField>
+
+<ParamField path="Services" type="string">
+  Enabled AWS services: `s3`, `sqs`, `sns`, `firehose`
+</ParamField>
+
+**Environment Variables**:
+- `DEBUG`: Debug mode (default: 1)
+- `LS_LOG`: LocalStack log level (set to WARN)
+- `LOCALSTACK_HOST`: Host address (127.0.0.1)
+
+**Volumes**:
+- `${TMPDIR:-/tmp}/localstack:/var/lib/localstack` - LocalStack data
+- `./compose/start-localstack.sh:/etc/localstack/init/ready.d/start-localstack.sh` - Initialization script
+
+**Health Check**:
+```yaml
+test: ['CMD', 'curl', 'localhost:4566']
+interval: 5s
+start_period: 5s
+retries: 3
+```
+
+<Note>
+  LocalStack requires the `compose/aws.env` file for AWS credentials configuration.
+</Note>
+
+### Redis
+
+In-memory data store for caching and session management.
+
+<ParamField path="Image" type="string" default="redis:7.2.3-alpine3.18">
+  Official Redis Alpine image
+</ParamField>
+
+<ParamField path="Port" type="number" default="6379">
+  Standard Redis port
+</ParamField>
+
+**Configuration**:
+- Restart policy: `always`
+- Network: `cdp-tenant`
+- No authentication (local development only)
+
+<Warning>
+  This Redis configuration is for local development only. Production deployments should use authentication and encryption.
+</Warning>
+
+### MongoDB
+
+Document database for application data storage.
+
+<ParamField path="Image" type="string" default="mongo:6.0.13">
+  Official MongoDB image
+</ParamField>
+
+<ParamField path="Port" type="number" default="27017">
+  Standard MongoDB port
+</ParamField>
+
+**Volumes**:
+- `mongodb-data:/data` - Named volume for persistent data storage
+
+**Configuration**:
+- Restart policy: `always`
+- Network: `cdp-tenant`
+- No authentication (local development only)
+
+<Note>
+  MongoDB data persists across container restarts using the named volume `mongodb-data`.
+</Note>
+
+### EPR LAPS Backend
+
+The main application service.
+
+<ParamField path="Build" type="object">
+  - `context`: Current directory (`.`)
+  - `target`: `development` stage from Dockerfile
+</ParamField>
+
+<ParamField path="Port" type="number" default="3001">
+  Application port (mapped to 3001:3001)
+</ParamField>
+
+**Service Dependencies**:
+```yaml
+depends_on:
+  localstack:
+    condition: service_healthy
+  mongodb:
+    condition: service_started
+```
+
+The application waits for:
+- LocalStack to be healthy (passes health check)
+- MongoDB to start (doesn't wait for ready state)
+
+**Environment Variables**:
+- `PORT`: 3001
+- `NODE_ENV`: development
+- `LOCALSTACK_ENDPOINT`: http://localstack:4566
+- `MONGO_URI`: mongodb://mongodb:27017/
+- Additional variables from `compose/aws.env`
+
+**Volumes for Hot-Reloading**:
+```yaml
+volumes:
+  - ./src:/home/node/src
+  - ./package.json:/home/node/package.json
+```
+
+<Note>
+  Source code changes are automatically reflected in the running container without rebuilding.
+</Note>
+
+## Network Configuration
+
+All services communicate over the `cdp-tenant` bridge network:
+
+```yaml
+networks:
+  cdp-tenant:
+    driver: bridge
+    name: cdp-tenant
+```
+
+Services can reference each other by service name (e.g., `mongodb`, `localstack`, `redis`).
+
+## Volume Management
+
+The compose file defines a named volume for MongoDB:
+
+```yaml
+volumes:
+  mongodb-data:
+```
+
+**Volume Operations**:
+
+<CodeGroup>
+```bash List Volumes
+docker volume ls
+```
+
+```bash Inspect Volume
+docker volume inspect epr-laps-backend_mongodb-data
+```
+
+```bash Remove Volume
+docker compose down -v
+```
+
+```bash Backup Volume
+docker run --rm -v epr-laps-backend_mongodb-data:/data -v $(pwd):/backup alpine tar czf /backup/mongodb-backup.tar.gz -C /data .
+```
+</CodeGroup>
+
+## Required Configuration Files
+
+The docker-compose setup requires the following files:
+
+<ParamField path="compose/aws.env" type="file">
+  AWS credentials and configuration for LocalStack.
+
+  **Required variables**:
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_DEFAULT_REGION`
+</ParamField>
+
+<ParamField path="compose/start-localstack.sh" type="file">
+  Initialization script for LocalStack services.
+
+  Runs when LocalStack reaches the ready state to configure S3 buckets, SQS queues, etc.
+</ParamField>
+
+## Common Operations
+
+### Rebuilding Services
+
+Rebuild a specific service after code changes:
+
+```bash
+docker compose up --build epr-laps-backend
+```
+
+### Restarting Services
+
+Restart a specific service:
+
+```bash
+docker compose restart epr-laps-backend
+```
+
+### Scaling Services
+
+<Warning>
+  The current configuration doesn't support scaling the main application due to volume mounts and port conflicts.
+</Warning>
+
+### Accessing Service Shells
+
+Open a shell in a running container:
+
+<CodeGroup>
+```bash Application Shell
+docker compose exec epr-laps-backend sh
+```
+
+```bash MongoDB Shell
+docker compose exec mongodb mongosh
+```
+
+```bash Redis CLI
+docker compose exec redis redis-cli
+```
+</CodeGroup>
+
+### Viewing Service Configuration
+
+Display the resolved compose configuration:
+
+```bash
+docker compose config
+```
+
+## Troubleshooting
+
+### LocalStack Not Healthy
+
+If LocalStack fails health checks:
+
+```bash
+# Check LocalStack logs
+docker compose logs localstack
+
+# Verify LocalStack is accessible
+curl http://localhost:4566/_localstack/health
+```
+
+### MongoDB Connection Issues
+
+Verify MongoDB is accessible:
+
+```bash
+# Test connection from host
+mongosh mongodb://localhost:27017/
+
+# Test from application container
+docker compose exec epr-laps-backend sh -c "curl -v telnet://mongodb:27017"
+```
+
+### Port Conflicts
+
+If ports are already in use:
+
+```bash
+# Check what's using the port
+lsof -i :3001
+
+# Modify ports in compose.yml
+ports:
+  - '3002:3001'  # Map to different host port
+```
+
+### Volume Permission Issues
+
+If you encounter permission errors with volumes:
+
+```bash
+# Fix ownership of mounted volumes
+sudo chown -R $USER:$USER ./src
+```
+
+## Frontend Integration (Optional)
+
+The compose file includes a commented-out frontend service example:
+
+```yaml
+# frontend:
+#   image: defradigital/frontend:${FRONTEND_VERSION:-latest}
+#   ports:
+#     - '3000:3000'
+#   depends_on:
+#     - localstack
+#     - redis
+```
+
+Uncomment and configure this section if you need to run the frontend alongside the backend.
+
+## Performance Optimization
+
+### Build Cache
+
+Speed up builds by using BuildKit:
+
+```bash
+DOCKER_BUILDKIT=1 docker compose build
+```
+
+### Resource Limits
+
+Add resource constraints to prevent services from consuming too much memory:
+
+```yaml
+epr-laps-backend:
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 512M
+```
+
+## Next Steps
+
+- Review [Environment Variables](/deployment/environment-variables) for configuration options
+- Check [Docker Deployment](/deployment/docker) for standalone container usage
+- Configure the `compose/aws.env` file for your local AWS services

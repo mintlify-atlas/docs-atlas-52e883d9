@@ -1,0 +1,159 @@
+---
+title: Docker Deployment
+description: Build and run the EPR LAPS Backend using Docker
+---
+
+The EPR LAPS Backend uses a multi-stage Dockerfile to support both development and production environments.
+
+## Dockerfile Overview
+
+The Dockerfile uses the Defra Digital base images and includes two build stages:
+
+- **development**: Includes development dependencies and debugging capabilities
+- **production**: Optimized for production with minimal dependencies and health check support
+
+### Build Arguments
+
+<ParamField path="PARENT_VERSION" type="string" default="2.8.5-node22.16.0">
+  The version of the Defra Digital Node.js base image
+</ParamField>
+
+<ParamField path="PORT" type="number" default="3000">
+  The port to expose for the application
+</ParamField>
+
+<ParamField path="PORT_DEBUG" type="number" default="9229">
+  The port to expose for Node.js debugging (development only)
+</ParamField>
+
+## Development Image
+
+The development image includes all dependencies and supports hot-reloading for local development.
+
+<Steps>
+  <Step title="Build the development image">
+    Build the Docker image targeting the development stage:
+
+    ```bash
+    docker build --target development --no-cache --tag epr-laps-backend:development .
+    ```
+
+    <Note>
+      The `--no-cache` flag ensures a clean build without using cached layers.
+    </Note>
+  </Step>
+
+  <Step title="Run the development container">
+    Start the container with the required environment variables:
+
+    ```bash
+    docker run -e PORT=3001 -p 3001:3001 epr-laps-backend:development
+    ```
+
+    The application will be accessible at `http://localhost:3001`.
+  </Step>
+
+  <Step title="Enable debugging (optional)">
+    To enable Node.js debugging, expose the debug port:
+
+    ```bash
+    docker run -e PORT=3001 -p 3001:3001 -p 9229:9229 epr-laps-backend:development
+    ```
+
+    Connect your debugger to `localhost:9229`.
+  </Step>
+</Steps>
+
+### Development Image Features
+
+- Installs all dependencies including devDependencies
+- Runs with `npm run docker:dev` command
+- Exposes both application and debug ports
+- Based on `defradigital/node-development` image
+- Includes development tools and utilities
+
+## Production Image
+
+The production image is optimized for deployment with minimal dependencies and includes health check support.
+
+<Steps>
+  <Step title="Build the production image">
+    Build the Docker image without specifying a target (defaults to production):
+
+    ```bash
+    docker build --no-cache --tag epr-laps-backend .
+    ```
+  </Step>
+
+  <Step title="Run the production container">
+    Start the container with environment variables:
+
+    ```bash
+    docker run -e PORT=3001 -p 3001:3001 epr-laps-backend
+    ```
+  </Step>
+
+  <Step title="Verify health check">
+    The production image includes curl for CDP platform health checks:
+
+    ```bash
+    curl http://localhost:3001/health
+    ```
+  </Step>
+</Steps>
+
+### Production Image Features
+
+- Installs only production dependencies (`npm ci --omit=dev`)
+- Runs with `node src` command
+- Includes curl for health check requirements
+- Based on `defradigital/node` production image
+- Optimized for size and security
+- Copies artifacts from development stage
+
+<Warning>
+  The production image requires curl for CDP platform health checks. Do not remove this dependency.
+</Warning>
+
+## Image Labels
+
+Both images include labels identifying the parent image:
+
+```
+uk.gov.defra.ffc.parent-image=defradigital/node-development:2.8.5-node22.16.0
+```
+
+## Running with Custom Environment Variables
+
+You can pass multiple environment variables when running the container:
+
+<CodeGroup>
+```bash Development
+docker run \
+  -e PORT=3001 \
+  -e NODE_ENV=development \
+  -e MONGO_URI=mongodb://mongodb:27017/ \
+  -e LOG_LEVEL=debug \
+  -p 3001:3001 \
+  epr-laps-backend:development
+```
+
+```bash Production
+docker run \
+  -e PORT=3001 \
+  -e NODE_ENV=production \
+  -e MONGO_URI=mongodb://mongodb:27017/ \
+  -e LOG_LEVEL=info \
+  -p 3001:3001 \
+  epr-laps-backend
+```
+</CodeGroup>
+
+<Note>
+  For a complete list of environment variables, see the [Environment Variables](/deployment/environment-variables) page.
+</Note>
+
+## Next Steps
+
+- Configure [Environment Variables](/deployment/environment-variables) for your deployment
+- Use [Docker Compose](/deployment/docker-compose) for local development with all dependencies

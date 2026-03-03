@@ -1,0 +1,264 @@
+---
+title: Environment Variables
+description: Complete reference for all environment variables in the EPR LAPS Backend
+---
+
+This page documents all environment variables used by the EPR LAPS Backend API. Variables are extracted from the application configuration in `src/config.js`.
+
+## Application Configuration
+
+### Service Identity
+
+<ParamField path="SERVICE_VERSION" type="string" default="null">
+  The service version, injected into your Docker container in CDP environments.
+
+  **Nullable**: Yes
+</ParamField>
+
+### Server Configuration
+
+<ParamField path="HOST" type="ipaddress" default="0.0.0.0">
+  The IP address to bind the server to.
+
+  **Format**: Valid IP address
+</ParamField>
+
+<ParamField path="PORT" type="port" default="3001">
+  The port to bind the server to.
+
+  **Format**: Valid port number (1-65535)
+</ParamField>
+
+### Environment
+
+<ParamField path="ENVIRONMENT" type="string" default="local">
+  The CDP environment the application is running in.
+
+  **Allowed values**:
+  - `local` - Local development
+  - `infra-dev` - Infrastructure development
+  - `management` - Management environment
+  - `dev` - Development environment
+  - `test` - Test environment
+  - `perf-test` - Performance testing
+  - `ext-test` - External testing
+  - `prod` - Production environment
+</ParamField>
+
+## Logging Configuration
+
+<ParamField path="LOG_ENABLED" type="boolean" default="true">
+  Enable or disable logging.
+
+  **Default**: `true` (disabled in test mode)
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="string" default="debug">
+  Logging level for the application.
+
+  **Allowed values**:
+  - `fatal` - Only fatal errors
+  - `error` - Error messages
+  - `warn` - Warning messages
+  - `info` - Informational messages
+  - `debug` - Debug messages
+  - `trace` - Trace messages
+  - `silent` - No logging
+</ParamField>
+
+<ParamField path="LOG_FORMAT" type="string" default="pino-pretty (dev) / ecs (prod)">
+  Format to output logs in.
+
+  **Allowed values**:
+  - `ecs` - Elastic Common Schema format (used in production)
+  - `pino-pretty` - Human-readable format (used in development)
+</ParamField>
+
+<Note>
+  In production, sensitive paths like `req.headers.authorization`, `req.headers.cookie`, and `res.headers` are automatically redacted from logs.
+</Note>
+
+## MongoDB Configuration
+
+<ParamField path="MONGO_URI" type="string" default="mongodb://127.0.0.1:27017/">
+  URI for MongoDB connection.
+
+  **Format**: Valid MongoDB connection string
+
+  **Example**: `mongodb://mongodb:27017/`
+</ParamField>
+
+<ParamField path="MONGO_DATABASE" type="string" default="epr-laps-backend">
+  Database name for MongoDB.
+</ParamField>
+
+### MongoDB Options
+
+These options are configured in code and cannot be set via environment variables:
+
+- **retryWrites**: `false` - Disable MongoDB write retries
+- **readPreference**: `secondary` - Use secondary nodes for read operations
+
+<Warning>
+  Ensure your MongoDB connection string includes authentication credentials in production environments.
+</Warning>
+
+## Network Configuration
+
+<ParamField path="HTTP_PROXY" type="string" default="null">
+  HTTP Proxy URL for outbound requests.
+
+  **Nullable**: Yes
+
+  **Example**: `http://proxy.example.com:8080`
+</ParamField>
+
+## Monitoring and Observability
+
+<ParamField path="ENABLE_METRICS" type="boolean" default="true (prod) / false (dev)">
+  Enable metrics reporting.
+
+  **Default**: Automatically enabled in production mode
+</ParamField>
+
+<ParamField path="TRACING_HEADER" type="string" default="x-cdp-request-id">
+  CDP tracing header name for request tracking.
+</ParamField>
+
+## Authentication Configuration
+
+<ParamField path="DEFRA_ID_DISCOVERY_URL" type="string" default="http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration">
+  URI for fetching the OpenID Connect metadata document.
+
+  Used for the signup/signin policy configuration.
+</ParamField>
+
+<ParamField path="DEFRA_ID_ISSUER" type="string" default="http://localhost:3200/cdp-defra-id-stub">
+  The expected issuer for JWT validation.
+
+  Must match the issuer claim in access tokens.
+</ParamField>
+
+## FSS API Configuration
+
+The Financial Shared Services (FSS) API is used to manage bank details.
+
+<ParamField path="FSS_API_URL" type="string" default="http://localhost:3003/api">
+  FSS API base URL for bank details operations.
+</ParamField>
+
+<ParamField path="FSS_API_KEY" type="string" default="some-api-key">
+  API key to authenticate with the FSS API.
+
+  <Warning>
+    This should be a secure value in production environments.
+  </Warning>
+</ParamField>
+
+<ParamField path="FSS_API_ENCRYPTION_KEY" type="string" default="">
+  Base64-encoded encryption key for FSS bank details.
+
+  <Warning>
+    Required for encrypting/decrypting sensitive bank information. Must be properly configured in production.
+  </Warning>
+</ParamField>
+
+## Business Configuration
+
+<ParamField path="SINGLE_PAYMENT_DOC_WARNING_YEAR" type="string" default="2025 to 2026">
+  Fiscal year range displayed to the frontend.
+
+  Format: `YYYY to YYYY`
+</ParamField>
+
+## Authorization Configuration
+
+Role-based access control for various operations. Each variable accepts an array of role codes.
+
+<ParamField path="VIEW_FULL_BANK_DETAILS" type="array" default='["CEO"]'>
+  Permission roles allowed to view full bank details.
+
+  **Format**: JSON array of role codes
+
+  **Example**: `["CEO", "CFO"]`
+</ParamField>
+
+<ParamField path="CONFIRM_BANK_DETAILS" type="array" default='["CEO", "WO"]'>
+  Permission roles allowed to confirm bank details.
+
+  **Format**: JSON array of role codes
+</ParamField>
+
+<ParamField path="CREATE_BANK_DETAILS" type="array" default='["CEO"]'>
+  Permission roles allowed to create bank details.
+
+  **Format**: JSON array of role codes
+</ParamField>
+
+<ParamField path="LIST_FINANCE_DOCUMENTS" type="array" default='["CEO"]'>
+  Permission roles allowed to list finance documents.
+
+  **Format**: JSON array of role codes
+</ParamField>
+
+<ParamField path="ACCESS_FINANCE_DOCUMENT" type="array" default='["CEO"]'>
+  Permission roles allowed to access finance documents.
+
+  **Format**: JSON array of role codes
+</ParamField>
+
+## Environment Variable Examples
+
+<CodeGroup>
+```bash Development
+export NODE_ENV=development
+export PORT=3001
+export HOST=0.0.0.0
+export LOG_LEVEL=debug
+export LOG_FORMAT=pino-pretty
+export MONGO_URI=mongodb://localhost:27017/
+export MONGO_DATABASE=epr-laps-backend
+export DEFRA_ID_DISCOVERY_URL=http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration
+export DEFRA_ID_ISSUER=http://localhost:3200/cdp-defra-id-stub
+export FSS_API_URL=http://localhost:3003/api
+export FSS_API_KEY=dev-api-key
+```
+
+```bash Production
+export NODE_ENV=production
+export PORT=3001
+export HOST=0.0.0.0
+export ENVIRONMENT=prod
+export LOG_LEVEL=info
+export LOG_FORMAT=ecs
+export ENABLE_METRICS=true
+export MONGO_URI=mongodb://mongo-prod:27017/
+export MONGO_DATABASE=epr-laps-backend
+export DEFRA_ID_DISCOVERY_URL=https://auth.example.gov.uk/.well-known/openid-configuration
+export DEFRA_ID_ISSUER=https://auth.example.gov.uk
+export FSS_API_URL=https://fss.example.gov.uk/api
+export FSS_API_KEY=<secure-api-key>
+export FSS_API_ENCRYPTION_KEY=<base64-encoded-key>
+export HTTP_PROXY=http://proxy.internal:8080
+```
+
+```bash Docker
+docker run \
+  -e NODE_ENV=production \
+  -e PORT=3001 \
+  -e MONGO_URI=mongodb://mongodb:27017/ \
+  -e LOG_LEVEL=info \
+  -e ENABLE_METRICS=true \
+  -p 3001:3001 \
+  epr-laps-backend
+```
+</CodeGroup>
+
+<Note>
+  All configuration is validated on application startup using Convict. Invalid values will cause the application to fail to start with a validation error.
+</Note>
+
+## Next Steps
+
+- Learn about [Docker Deployment](/deployment/docker)
+- Set up [Docker Compose](/deployment/docker-compose) for local development

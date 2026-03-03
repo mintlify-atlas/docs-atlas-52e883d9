@@ -1,0 +1,208 @@
+---
+title: API Overview
+description: Overview of the EPR LAPS Backend API including base URL and available endpoints
+---
+
+## Introduction
+
+The EPR LAPS (Extended Producer Responsibility - Local Authority Payment System) Backend API provides endpoints for managing bank details, accessing financial documents, and controlling permissions for local authorities in the EPR system.
+
+## Base URL
+
+The API base URL depends on your environment:
+
+<CodeGroup>
+```bash Local Development
+http://localhost:3001
+```
+
+```bash Production
+https://api.epr-laps.defra.gov.uk
+```
+</CodeGroup>
+
+<Note>
+The default port for local development is `3001`, but this can be configured via the `PORT` environment variable.
+</Note>
+
+## Available Endpoints
+
+All endpoints (except `/health`) require JWT authentication. See the [Authentication](/api/authentication) page for details.
+
+### Health Check
+
+<CodeGroup>
+```http GET /health
+GET /health
+```
+</CodeGroup>
+
+Returns the health status of the API. This endpoint does not require authentication.
+
+**Response:**
+```json
+{
+  "message": "success"
+}
+```
+
+### Bank Details
+
+<CodeGroup>
+```http GET /bank-details/{localAuthority}
+GET /bank-details/{localAuthority}
+Authorization: Bearer <token>
+```
+
+```http POST /bank-details
+POST /bank-details
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "localAuthority": "string",
+  "accountName": "string",
+  "sortCode": "string",
+  "accountNumber": "string",
+  "requesterEmail": "string",
+  "jpp": "string",
+  "organizationId": "string"
+}
+```
+
+```http PUT /bank-details
+PUT /bank-details
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "confirmed": true,
+  "requesterEmail": "string",
+  "organizationId": "string"
+}
+```
+</CodeGroup>
+
+**GET** - Retrieve bank details for a local authority  
+**POST** - Create new bank details  
+**PUT** - Confirm bank details
+
+### Documents
+
+<CodeGroup>
+```http GET /documents/{localAuthority}
+GET /documents/{localAuthority}
+Authorization: Bearer <token>
+```
+
+```http GET /document/{id}
+GET /document/{id}
+Authorization: Bearer <token>
+```
+</CodeGroup>
+
+**GET /documents/{localAuthority}** - Get document metadata for a local authority  
+**GET /document/{id}** - Retrieve a specific document by ID
+
+### Permissions
+
+<CodeGroup>
+```http GET /permissions/config
+GET /permissions/config
+Authorization: Bearer <token>
+```
+</CodeGroup>
+
+Returns the authorization configuration including role-based permissions for:
+- Viewing full bank details
+- Confirming bank details
+- Creating bank details
+- Listing finance documents
+- Accessing finance documents
+
+**Response Example:**
+```json
+{
+  "viewFullBankDetails": ["CEO"],
+  "confirmBankDetails": ["CEO", "WO"],
+  "createBankDetails": ["CEO"],
+  "listFinanceDocuments": ["CEO"],
+  "accessFinanceDocument": ["CEO"]
+}
+```
+
+## Request Headers
+
+All authenticated requests must include:
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `Authorization` | Yes | Bearer token with JWT |
+| `Content-Type` | For POST/PUT | `application/json` |
+| `x-cdp-request-id` | No | Request tracing ID for debugging |
+
+<Warning>
+The health check endpoint (`/health`) is the only endpoint that does not require authentication.
+</Warning>
+
+## Example Request
+
+<CodeGroup>
+```bash curl
+curl -X GET https://api.epr-laps.defra.gov.uk/documents/birmingham-city-council \
+  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "x-cdp-request-id: 12345"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.epr-laps.defra.gov.uk/documents/birmingham-city-council', {
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...',
+    'x-cdp-request-id': '12345'
+  }
+});
+const data = await response.json();
+```
+
+```python Python
+import requests
+
+headers = {
+    'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...',
+    'x-cdp-request-id': '12345'
+}
+response = requests.get(
+    'https://api.epr-laps.defra.gov.uk/documents/birmingham-city-council',
+    headers=headers
+)
+data = response.json()
+```
+</CodeGroup>
+
+## Response Format
+
+All API responses follow standard HTTP status codes:
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Success |
+| `201` | Created successfully |
+| `400` | Bad request (validation error) |
+| `401` | Unauthorized (invalid or missing token) |
+| `403` | Forbidden (insufficient permissions) |
+| `404` | Not found |
+| `500` | Internal server error |
+
+## Service Configuration
+
+The API service is configured with:
+
+- **Service Name:** `epr-laps-backend`
+- **Default Host:** `0.0.0.0`
+- **Default Port:** `3001`
+- **Database:** MongoDB
+- **Default Database Name:** `epr-laps-backend`
+
+<Note>
+Configuration values can be overridden using environment variables. See the deployment documentation for details.
+</Note>

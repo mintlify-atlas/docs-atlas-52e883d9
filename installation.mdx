@@ -1,0 +1,601 @@
+---
+title: Installation
+description: Complete installation and configuration guide for EPR LAPS Backend API
+---
+
+## System Requirements
+
+Before installing the EPR LAPS Backend API, ensure your system meets these requirements:
+
+### Required
+
+- **Node.js** >= v22.16.0
+- **npm** >= v11.0.0
+- **MongoDB** >= 5.0 (for local development)
+
+### Recommended
+
+- **nvm** (Node Version Manager) for managing Node.js versions
+- **Docker** and **Docker Compose** for containerized development
+- **Git** for version control
+
+<Warning>
+  The API requires Node.js v22 or higher. Using older versions will cause compatibility issues.
+</Warning>
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="Local Installation">
+    ## Local Installation
+
+    <Steps>
+      <Step title="Install Node.js">
+        Install Node.js using nvm (recommended):
+        
+        ```bash
+        # Install nvm
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+        
+        # Install Node.js v22
+        nvm install 22
+        nvm use 22
+        
+        # Verify installation
+        node --version  # Should be >= v22.16.0
+        npm --version   # Should be >= v11.0.0
+        ```
+      </Step>
+
+      <Step title="Clone Repository">
+        Clone the EPR LAPS Backend repository:
+        
+        ```bash
+        git clone <repository-url>
+        cd epr-laps-backend
+        ```
+      </Step>
+
+      <Step title="Use Correct Node Version">
+        The project includes an `.nvmrc` file. Use it to automatically switch to the correct Node version:
+        
+        ```bash
+        nvm use
+        ```
+        
+        <Note>
+          If you see "version not installed", run `nvm install` first.
+        </Note>
+      </Step>
+
+      <Step title="Install Dependencies">
+        Install all project dependencies:
+        
+        ```bash
+        npm install
+        ```
+        
+        This will install:
+        - Production dependencies from `package.json`
+        - Development tools (ESLint, Prettier, Vitest)
+        - Husky git hooks for code quality
+        
+        The installation automatically runs `npm run setup:husky` to configure git hooks.
+      </Step>
+
+      <Step title="Install MongoDB">
+        Install MongoDB for local development:
+        
+        <CodeGroup>
+        ```bash macOS
+        # Using Homebrew
+        brew tap mongodb/brew
+        brew install mongodb-community
+        brew services start mongodb-community
+        ```
+        
+        ```bash Ubuntu/Debian
+        # Import MongoDB GPG key
+        wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
+        
+        # Add MongoDB repository
+        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+        
+        # Install MongoDB
+        sudo apt-get update
+        sudo apt-get install -y mongodb-org
+        
+        # Start MongoDB
+        sudo systemctl start mongod
+        sudo systemctl enable mongod
+        ```
+        
+        ```bash Docker
+        # Run MongoDB in Docker
+        docker run -d \
+          --name mongodb \
+          -p 27017:27017 \
+          -v mongodb_data:/data/db \
+          mongo:6.0
+        ```
+        </CodeGroup>
+      </Step>
+
+      <Step title="Verify Installation">
+        Verify all components are installed:
+        
+        ```bash
+        # Check Node.js
+        node --version
+        
+        # Check npm
+        npm --version
+        
+        # Check MongoDB connection
+        mongosh --eval "db.adminCommand('ping')"
+        
+        # View available npm scripts
+        npm run
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Docker Installation">
+    ## Docker Installation
+
+    <Steps>
+      <Step title="Install Docker">
+        Install Docker and Docker Compose:
+        
+        <CodeGroup>
+        ```bash macOS
+        # Install Docker Desktop for Mac
+        # Download from: https://www.docker.com/products/docker-desktop
+        ```
+        
+        ```bash Ubuntu/Debian
+        # Install Docker
+        sudo apt-get update
+        sudo apt-get install -y docker.io docker-compose
+        
+        # Start Docker service
+        sudo systemctl start docker
+        sudo systemctl enable docker
+        
+        # Add user to docker group
+        sudo usermod -aG docker $USER
+        ```
+        
+        ```bash Windows
+        # Install Docker Desktop for Windows
+        # Download from: https://www.docker.com/products/docker-desktop
+        ```
+        </CodeGroup>
+      </Step>
+
+      <Step title="Clone Repository">
+        Clone the repository:
+        
+        ```bash
+        git clone <repository-url>
+        cd epr-laps-backend
+        ```
+      </Step>
+
+      <Step title="Build Development Image">
+        Build the Docker development image:
+        
+        ```bash
+        docker build --target development --no-cache --tag epr-laps-backend:development .
+        ```
+      </Step>
+
+      <Step title="Build Production Image">
+        Build the production image:
+        
+        ```bash
+        docker build --no-cache --tag epr-laps-backend .
+        ```
+      </Step>
+
+      <Step title="Start with Docker Compose">
+        Use Docker Compose for complete local environment:
+        
+        ```bash
+        docker compose up --build -d
+        ```
+        
+        This starts:
+        - EPR LAPS Backend on port 3001
+        - MongoDB on port 27017
+        - Redis on port 6379
+        - Localstack (AWS services) on port 4566
+      </Step>
+
+      <Step title="Verify Docker Installation">
+        Check running containers:
+        
+        ```bash
+        # List containers
+        docker compose ps
+        
+        # View logs
+        docker compose logs -f epr-laps-backend
+        
+        # Test API
+        curl http://localhost:3001/health
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Environment Variables
+
+The API uses environment variables for configuration. Create a `.env` file or export these variables:
+
+<CodeGroup>
+```bash Required
+# Node Environment
+NODE_ENV=development
+
+# Server Configuration
+HOST=0.0.0.0
+PORT=3001
+
+# MongoDB Configuration
+MONGO_URI=mongodb://127.0.0.1:27017/
+MONGO_DATABASE=epr-laps-backend
+
+# Authentication
+DEFRA_ID_DISCOVERY_URL=http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration
+DEFRA_ID_ISSUER=http://localhost:3200/cdp-defra-id-stub
+
+# FSS API Integration
+FSS_API_URL=http://localhost:3003/api
+FSS_API_KEY=some-api-key
+FSS_API_ENCRYPTION_KEY=your-base64-encryption-key
+```
+
+```bash Optional
+# Logging Configuration
+LOG_ENABLED=true
+LOG_LEVEL=debug
+LOG_FORMAT=pino-pretty
+
+# Proxy Configuration
+HTTP_PROXY=http://proxy.example.com:8080
+
+# Metrics
+ENABLE_METRICS=false
+
+# Tracing
+TRACING_HEADER=x-cdp-request-id
+
+# Service Metadata
+SERVICE_VERSION=0.0.0
+ENVIRONMENT=local
+
+# Fiscal Year
+SINGLE_PAYMENT_DOC_WARNING_YEAR=2025 to 2026
+```
+
+```bash Role Permissions
+# Role-based Access Control
+VIEW_FULL_BANK_DETAILS=["CEO"]
+CONFIRM_BANK_DETAILS=["CEO","WO"]
+CREATE_BANK_DETAILS=["CEO"]
+LIST_FINANCE_DOCUMENTS=["CEO"]
+ACCESS_FINANCE_DOCUMENT=["CEO"]
+```
+</CodeGroup>
+
+### Configuration Schema
+
+The API uses [Convict](https://github.com/mozilla/node-convict) for configuration management with validation:
+
+```javascript
+// From src/config.js
+import convict from 'convict'
+import convictFormatWithValidator from 'convict-format-with-validator'
+
+const config = convict({
+  serviceName: {
+    doc: 'Api Service Name',
+    format: String,
+    default: 'epr-laps-backend'
+  },
+  port: {
+    doc: 'The port to bind',
+    format: 'port',
+    default: 3001,
+    env: 'PORT'
+  },
+  mongo: {
+    mongoUrl: {
+      doc: 'URI for mongodb',
+      format: String,
+      default: 'mongodb://127.0.0.1:27017/',
+      env: 'MONGO_URI'
+    },
+    databaseName: {
+      doc: 'database for mongodb',
+      format: String,
+      default: 'epr-laps-backend',
+      env: 'MONGO_DATABASE'
+    }
+  }
+})
+
+config.validate({ allowed: 'strict' })
+```
+
+<Note>
+  Configuration validation runs on startup. Invalid configuration will prevent the server from starting.
+</Note>
+
+## Package Dependencies
+
+The API uses the following core dependencies:
+
+### Production Dependencies
+
+```json
+{
+  "@hapi/hapi": "21.4.6",
+  "@hapi/boom": "10.0.1",
+  "hapi-auth-jwt2": "11.0.0",
+  "mongodb": "7.1.0",
+  "mongo-locks": "3.1.2",
+  "joi": "18.0.2",
+  "convict": "6.2.4",
+  "pino": "10.3.1",
+  "hapi-pino": "13.0.0",
+  "undici": "7.22.0",
+  "@defra/hapi-tracing": "1.30.0",
+  "@defra/cdp-auditing": "0.6.0"
+}
+```
+
+### Development Dependencies
+
+```json
+{
+  "vitest": "4.0.18",
+  "@vitest/coverage-v8": "4.0.18",
+  "eslint": "9.29.0",
+  "neostandard": "0.13.0",
+  "prettier": "3.8.1",
+  "nodemon": "3.1.14",
+  "husky": "9.1.7"
+}
+```
+
+## Updating Dependencies
+
+Keep dependencies up to date using npm-check-updates:
+
+<Steps>
+  <Step title="Install npm-check-updates">
+    ```bash
+    npm install -g npm-check-updates
+    ```
+  </Step>
+
+  <Step title="Check for Updates">
+    ```bash
+    ncu --interactive --format group
+    ```
+  </Step>
+
+  <Step title="Update Dependencies">
+    ```bash
+    # Update package.json
+    ncu -u
+    
+    # Install updated packages
+    npm install
+    ```
+  </Step>
+
+  <Step title="Run Tests">
+    ```bash
+    npm test
+    ```
+  </Step>
+</Steps>
+
+## Running the Application
+
+After installation, you can run the API in different modes:
+
+<CodeGroup>
+```bash Development Mode
+# Start with hot-reload and debugging
+npm run dev
+
+# Server runs on http://0.0.0.0:3001
+# Debug inspector available on port 9229
+```
+
+```bash Production Mode
+# Run optimized production build
+NODE_ENV=production npm start
+```
+
+```bash Docker Development
+# Run development container
+docker run -e PORT=3001 -p 3001:3001 epr-laps-backend:development
+```
+
+```bash Docker Production
+# Run production container
+docker run -e PORT=3001 -p 3001:3001 epr-laps-backend
+```
+</CodeGroup>
+
+## Code Quality Tools
+
+### Linting
+
+The project uses ESLint with neostandard configuration:
+
+```bash
+# Check for linting errors
+npm run lint
+
+# Auto-fix linting errors
+npm run lint:fix
+```
+
+### Formatting
+
+Prettier is configured for consistent code formatting:
+
+```bash
+# Check formatting
+npm run format:check
+
+# Auto-format code
+npm run format
+```
+
+### Git Hooks
+
+Husky automatically runs quality checks before commits:
+
+```bash
+# Pre-commit hook runs:
+# 1. npm run format:check
+# 2. npm run lint
+```
+
+<Warning>
+  On Windows, if you encounter Prettier line break issues, run:
+  ```bash
+  git config --global core.autocrlf false
+  ```
+</Warning>
+
+## Testing
+
+The API uses Vitest for testing with coverage reporting:
+
+<CodeGroup>
+```bash Run Tests
+# Run all tests with coverage
+npm test
+
+# Coverage reports are generated in ./coverage/
+```
+
+```bash Watch Mode
+# Run tests in watch mode
+npm run test:watch
+```
+
+```bash Docker Tests
+# Run tests in Docker
+docker compose run epr-laps-backend npm test
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Installation fails with permission errors">
+    On Linux/macOS, you may need to fix npm permissions:
+    ```bash
+    # Change npm default directory
+    mkdir ~/.npm-global
+    npm config set prefix '~/.npm-global'
+    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </Accordion>
+
+  <Accordion title="MongoDB connection errors">
+    Verify MongoDB is running and accessible:
+    ```bash
+    # Test connection
+    mongosh mongodb://127.0.0.1:27017/
+    
+    # Check MongoDB status
+    sudo systemctl status mongod
+    
+    # Check Docker MongoDB
+    docker ps | grep mongo
+    ```
+  </Accordion>
+
+  <Accordion title="Node version mismatch">
+    Ensure you're using Node.js v22:
+    ```bash
+    # Check current version
+    node --version
+    
+    # Switch to correct version
+    nvm use 22
+    
+    # Or install if needed
+    nvm install 22
+    ```
+  </Accordion>
+
+  <Accordion title="Husky hooks not working">
+    Reinstall git hooks:
+    ```bash
+    npm run setup:husky
+    
+    # Or manually
+    npx husky install
+    ```
+  </Accordion>
+
+  <Accordion title="Docker build fails">
+    Clear Docker cache and rebuild:
+    ```bash
+    # Remove old images
+    docker rmi epr-laps-backend:development epr-laps-backend
+    
+    # Rebuild without cache
+    docker build --no-cache --tag epr-laps-backend .
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get the API running and test your installation
+  </Card>
+  <Card
+    title="API Reference"
+    icon="book"
+    href="/api-reference"
+  >
+    Explore available API endpoints and usage
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration"
+  >
+    Deep dive into configuration options
+  </Card>
+  <Card
+    title="Development Guide"
+    icon="code"
+    href="/development"
+  >
+    Learn about development workflows and best practices
+  </Card>
+</CardGroup>

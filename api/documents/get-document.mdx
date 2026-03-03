@@ -1,0 +1,176 @@
+---
+title: "Get Document"
+api: "GET /document/{id}"
+description: "Downloads a specific document file by its ID as a PDF"
+---
+
+## Overview
+
+This endpoint retrieves a specific document file from the FSS (File Storage Service) API and returns it as a PDF. The document is fetched as a binary buffer and streamed to the client.
+
+## Authorization
+
+This endpoint requires authentication and authorization via the access control plugin.
+
+**Required Permission:** `accessFinanceDocument`
+
+**Allowed Roles:**
+- Chief Executive Officer (CEO)
+- Head of Finance (HOF)
+- Finance Officer (FO)
+- Head of Waste (HOW)
+- Waste Officer (WO)
+
+<Note>
+Users without the required permission will receive a 403 Forbidden response. All requests are logged for audit purposes with the action kind `DocumentAccessed`.
+</Note>
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique system ID of the document to retrieve. This ID is obtained from the document metadata endpoint.
+</ParamField>
+
+## Response
+
+The endpoint returns the document file as a PDF with the following characteristics:
+
+- **Content-Type:** `application/pdf`
+- **Status Code:** `200 OK`
+- **Body:** Binary PDF file data
+
+<Note>
+The response is not JSON but a binary PDF file that can be downloaded or displayed in a PDF viewer.
+</Note>
+
+## Error Responses
+
+<ResponseField name="403 Forbidden" type="object">
+  Returned when the user's role does not have permission to access documents
+  
+  ```json
+  {
+    "statusCode": 403,
+    "error": "Forbidden",
+    "message": "{role} not allowed to access the document"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error" type="object">
+  Returned when the FSS API request fails or an unexpected error occurs
+  
+  ```json
+  {
+    "statusCode": 500,
+    "error": "Internal Server Error",
+    "message": "Error fetching file"
+  }
+  ```
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.example.com/document/abc123xyz" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -o document.pdf
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.example.com/document/abc123xyz', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+
+// Get the PDF as a blob
+const blob = await response.blob();
+
+// Create a download link
+const url = window.URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = 'document.pdf';
+a.click();
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.example.com/document/abc123xyz',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+
+# Save the PDF to a file
+with open('document.pdf', 'wb') as f:
+    f.write(response.content)
+```
+
+```javascript Node.js
+import fs from 'fs';
+import fetch from 'node-fetch';
+
+const response = await fetch('https://api.example.com/document/abc123xyz', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+
+const buffer = await response.arrayBuffer();
+fs.writeFileSync('document.pdf', Buffer.from(buffer));
+```
+
+</CodeGroup>
+
+## Implementation Details
+
+The endpoint performs the following operations:
+
+1. **Validates** the `id` parameter (required, trimmed string)
+2. **Checks authorization** via the access control plugin
+3. **Fetches** the document file from FSS API: `{fssApiUrl}/now/attachment/{id}/file`
+4. **Converts** the response to an array buffer
+5. **Returns** the PDF with appropriate Content-Type header
+6. **Logs** the action for audit purposes with outcome (Success/Failure)
+
+<Note>
+The FSS API endpoint `/now/attachment/{id}/file` is a ServiceNow attachment API that returns the raw file data. The `x-sn-apikey` header is used for authentication with the FSS API.
+</Note>
+
+## Usage Flow
+
+1. First, call the [Get Document Metadata](/api/documents/get-metadata) endpoint to retrieve the list of available documents
+2. Extract the `id` field from the desired document in the response
+3. Use that `id` to call this endpoint and download the PDF file
+
+### Example Flow
+
+```javascript
+// Step 1: Get document metadata
+const metadataResponse = await fetch('https://api.example.com/documents/ABC123', {
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' }
+});
+const metadata = await metadataResponse.json();
+
+// Step 2: Extract document ID
+const documentId = metadata['2024 to 2025']['EN'][0].id; // "abc123xyz"
+
+// Step 3: Download the document
+const documentResponse = await fetch(`https://api.example.com/document/${documentId}`, {
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' }
+});
+const pdfBlob = await documentResponse.blob();
+```
+
+## Security Considerations
+
+- All document access requests are audited with the action kind `DocumentAccessed`
+- Authorization is checked before fetching the document from FSS
+- The FSS API key is securely stored in configuration and not exposed to clients
+- Failed access attempts are logged with user role information for security monitoring

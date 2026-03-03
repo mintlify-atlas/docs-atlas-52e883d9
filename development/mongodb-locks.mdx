@@ -1,0 +1,407 @@
+---
+title: MongoDB Distributed Locking
+description: Implement distributed locks using MongoDB for concurrent write operations
+---
+
+## Overview
+
+EPR LAPS Backend uses [mongo-locks](https://github.com/TobiasGaertner/mongo-locks) for distributed locking to prevent race conditions in concurrent write operations across multiple service instances.
+
+<Warning>
+Always use locks for critical sections that modify shared resources to prevent data corruption in distributed environments.
+</Warning>
+
+## Why Use Locks?
+
+Distributed locks are essential when:
+
+- Multiple service instances run concurrently
+- Operations modify shared data in MongoDB
+- Race conditions could cause data inconsistency
+- Operations must be atomic across multiple documents
+
+## Basic Usage
+
+### Accessing the Locker
+
+The locker is available via `server.locker` or `request.locker`:
+
+```javascript
+// In server methods
+async function doStuff(server) {
+  const lock = await server.locker.lock('unique-resource-name')
+  // ...
+}
+
+// In route handlers
+const handler = async (request, h) => {
+  const lock = await request.locker.lock('unique-resource-name')
+  // ...
+}
+```
+
+### Traditional Lock Pattern
+
+The recommended pattern for using locks:
+
+```javascript
+async function doStuff(server) {
+  const lock = await server.locker.lock('unique-resource-name')
+
+  if (!lock) {
+    // Lock unavailable - another process holds it
+    return
+  }
+
+  try {
+    // Perform critical operations here
+    // These operations are now protected from concurrent access
+  } finally {
+    // Always release the lock
+    await lock.free()
+  }
+}
+```
+
+<Note>
+**Key Points:**
+- Always check if lock acquisition succeeded (`if (!lock)`)
+- Use `try/finally` to ensure lock is released even if errors occur
+- Keep the locked section small and atomic
+</Note>
+
+### Using `await using` (ES2022)
+
+<Tip>
+Modern JavaScript supports automatic resource management with `await using`, which automatically releases the lock.
+</Tip>
+
+```javascript
+async function doStuff(server) {
+  await using lock = await server.locker.lock('unique-resource-name')
+
+  if (!lock) {
+    // Lock unavailable
+    return
+  }
+
+  // Perform critical operations
+  // Lock is automatically released when lock goes out of scope
+}
+```
+
+<Warning>
+**Caveat:** Test coverage reports may not correctly handle `await using` syntax.
+</Warning>
+
+## Helper Functions
+
+The application provides helper methods in `src/common/helpers/mongo-lock.js`:
+
+### `acquireLock()`
+
+Attempts to acquire a lock with optional logging:
+
+```javascript
+import { acquireLock } from './common/helpers/mongo-lock.js'
+
+async function processPayment(server, logger, paymentId) {
+  const lock = await acquireLock(
+    server.locker,
+    `payment-${paymentId}`,
+    logger
+  )
+
+  if (!lock) {
+    // Lock acquisition failed (logged automatically)
+    return { success: false, error: 'Resource locked' }
+  }
+
+  try {
+    // Process payment
+    return { success: true }
+  } finally {
+    await lock.free()
+  }
+}
+```
+
+**Function signature:**
+
+```javascript
+async function acquireLock(locker, resource, logger)
+```
+
+**Parameters:**
+- `locker` - The locker instance (`server.locker` or `request.locker`)
+- `resource` - Unique resource identifier string
+- `logger` - Optional logger instance for error logging
+
+**Returns:** Lock object or `null` if unavailable
+
+### `requireLock()`
+
+Requires a lock to be acquired, throwing an error if unavailable:
+
+```javascript
+import { requireLock } from './common/helpers/mongo-lock.js'
+
+async function criticalOperation(server, resourceId) {
+  const lock = await requireLock(
+    server.locker,
+    `critical-${resourceId}`
+  )
+
+  try {
+    // Lock is guaranteed to be acquired
+    // Perform critical operation
+  } finally {
+    await lock.free()
+  }
+}
+```
+
+**Function signature:**
+
+```javascript
+async function requireLock(locker, resource)
+```
+
+**Parameters:**
+- `locker` - The locker instance
+- `resource` - Unique resource identifier string
+
+**Returns:** Lock object
+
+**Throws:** Error if lock cannot be acquired
+
+<Warning>
+`requireLock()` will throw an exception if the lock is unavailable. Use `acquireLock()` for graceful handling.
+</Warning>
+
+## Helper Implementation
+
+From `src/common/helpers/mongo-lock.js`:
+
+```javascript
+async function acquireLock(locker, resource, logger) {
+  const lock = await locker.lock(resource)
+  if (!lock) {
+    if (logger) {
+      logger.error(`Failed to acquire lock for ${resource}`)
+    }
+    return null
+  }
+  return lock
+}
+
+async function requireLock(locker, resource) {
+  const lock = await locker.lock(resource)
+  if (!lock) {
+    throw new Error(`Failed to acquire lock for ${resource}`)
+  }
+  return lock
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use descriptive resource names">
+    Choose clear, unique identifiers for lock resources:
+    
+    ```javascript
+    // Good
+    const lock = await server.locker.lock(`bank-details-${organisationId}`)
+    const lock = await server.locker.lock(`payment-processing-${paymentId}`)
+    
+    // Bad
+    const lock = await server.locker.lock('lock1')
+    const lock = await server.locker.lock('data')
+    ```
+  </Step>
+
+  <Step title="Keep critical sections small">
+    Minimize the time a lock is held:
+    
+    ```javascript
+    // Good - lock only during write
+    const data = await fetchData() // No lock needed
+    const processed = processData(data) // No lock needed
+    
+    const lock = await server.locker.lock('resource')
+    try {
+      await saveData(processed) // Lock held briefly
+    } finally {
+      await lock.free()
+    }
+    
+    // Bad - lock held unnecessarily long
+    const lock = await server.locker.lock('resource')
+    try {
+      const data = await fetchData() // Slow operation
+      const processed = processData(data) // CPU-intensive
+      await saveData(processed)
+    } finally {
+      await lock.free()
+    }
+    ```
+  </Step>
+
+  <Step title="Always release locks">
+    Use `try/finally` or `await using` to guarantee lock release:
+    
+    ```javascript
+    const lock = await server.locker.lock('resource')
+    if (!lock) return
+    
+    try {
+      await operation()
+    } finally {
+      await lock.free() // Always executes
+    }
+    ```
+  </Step>
+
+  <Step title="Handle lock unavailability gracefully">
+    Always check if lock acquisition succeeded:
+    
+    ```javascript
+    const lock = await server.locker.lock('resource')
+    
+    if (!lock) {
+      // Handle gracefully - don't proceed with operation
+      logger.warn('Resource is locked, skipping operation')
+      return { status: 'locked', retry: true }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Common Patterns
+
+### Pattern 1: Single Resource Lock
+
+```javascript
+async function updateBankDetails(server, organisationId, newDetails) {
+  const lock = await server.locker.lock(`bank-details-${organisationId}`)
+  
+  if (!lock) {
+    throw new Error('Bank details are currently being updated')
+  }
+  
+  try {
+    const existing = await server.db.collection('bank_details')
+      .findOne({ organisationId })
+    
+    await server.db.collection('bank_details')
+      .updateOne(
+        { organisationId },
+        { $set: newDetails }
+      )
+    
+    return { success: true }
+  } finally {
+    await lock.free()
+  }
+}
+```
+
+### Pattern 2: Multiple Resources
+
+<Warning>
+When locking multiple resources, always acquire locks in the same order to prevent deadlocks.
+</Warning>
+
+```javascript
+async function transferFunds(server, fromAccount, toAccount, amount) {
+  // Sort to ensure consistent lock order
+  const [first, second] = [fromAccount, toAccount].sort()
+  
+  const lock1 = await server.locker.lock(`account-${first}`)
+  if (!lock1) return { error: 'Account locked' }
+  
+  try {
+    const lock2 = await server.locker.lock(`account-${second}`)
+    if (!lock2) return { error: 'Account locked' }
+    
+    try {
+      // Perform transfer
+      await debit(fromAccount, amount)
+      await credit(toAccount, amount)
+      return { success: true }
+    } finally {
+      await lock2.free()
+    }
+  } finally {
+    await lock1.free()
+  }
+}
+```
+
+### Pattern 3: Retry with Backoff
+
+```javascript
+async function updateWithRetry(server, resourceId, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const lock = await server.locker.lock(`resource-${resourceId}`)
+    
+    if (lock) {
+      try {
+        await performUpdate(resourceId)
+        return { success: true }
+      } finally {
+        await lock.free()
+      }
+    }
+    
+    // Wait before retry with exponential backoff
+    const delay = Math.pow(2, attempt) * 100
+    await new Promise(resolve => setTimeout(resolve, delay))
+  }
+  
+  return { error: 'Failed to acquire lock after retries' }
+}
+```
+
+## Testing with Locks
+
+### Mock the Locker
+
+```javascript
+import { describe, it, expect, vi } from 'vitest'
+
+describe('Lock usage', () => {
+  it('should acquire and release lock', async () => {
+    const mockLock = {
+      free: vi.fn().mockResolvedValue(undefined)
+    }
+    
+    const server = {
+      locker: {
+        lock: vi.fn().mockResolvedValue(mockLock)
+      }
+    }
+    
+    await myFunction(server)
+    
+    expect(server.locker.lock).toHaveBeenCalledWith('resource-name')
+    expect(mockLock.free).toHaveBeenCalled()
+  })
+})
+```
+
+## Lock Configuration
+
+The mongo-locks library uses the MongoDB connection configured in the application. No additional configuration is required beyond the [MongoDB settings](/development/configuration#mongodb-configuration).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/development/configuration">
+    Configure MongoDB connection settings
+  </Card>
+  <Card title="Testing" icon="flask" href="/development/testing">
+    Learn how to test code with locks
+  </Card>
+</CardGroup>

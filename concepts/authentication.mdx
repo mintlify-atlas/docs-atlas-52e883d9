@@ -1,0 +1,262 @@
+---
+title: Authentication
+description: JWT authentication flow with Defra ID integration
+---
+
+## Overview
+
+The EPR LAPS Backend API uses **JWT (JSON Web Token)** authentication integrated with **Defra ID**, an OpenID Connect (OIDC) identity provider. All API endpoints are protected by default unless explicitly configured otherwise.
+
+## Authentication Flow
+
+### 1. OIDC Discovery
+
+At server startup, the auth plugin fetches the OIDC discovery document once and caches it (`src/plugins/auth.js:93-100`):
+
+```javascript
+const discoveryUrl = config.get('auth.discoveryUrl')
+try {
+  const discoveryRes = await Wreck.get(discoveryUrl, { json: true })
+  cachedDiscovery = discoveryRes.payload
+} catch (e) {
+  throw Boom.internal('Cannot fetch OIDC discovery document', e)
+}
+```
+
+<Info>
+The discovery document URL defaults to `http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration` for local development.
+</Info>
+
+### 2. JWT Strategy Registration
+
+The auth plugin registers a JWT authentication strategy with Hapi (`src/plugins/auth.js:102-111`):
+
+```javascript
+server.auth.strategy('jwt', 'jwt', {
+  key: getKey,
+  validate: jwtValidate,
+  verifyOptions: {
+    algorithms: ['RS256'],
+    issuer: config.get('auth.issuer')
+  }
+})
+
+server.auth.default('jwt')
+```
+
+<Warning>
+Only RS256 algorithm is supported. HS256 and other symmetric algorithms are not allowed.
+</Warning>
+
+### 3. Public Key Retrieval
+
+The `getKey` function retrieves the public key from the JWKS endpoint for signature verification (`src/plugins/auth.js:16-37`):
+
+```javascript
+export const getKey = async (_header) => {
+  if (!cachedDiscovery?.jwks_uri) {
+    throw Boom.internal('No jwks_uri found in discovery document')
+  }
+
+  const jwksUri = cachedDiscovery.jwks_uri
+  try {
+    const { payload } = await Wreck.get(jwksUri, { json: true })
+    const keys = payload?.keys || []
+
+    if (!keys.length) {
+      throw Boom.unauthorized('No JWKS keys found')
+    }
+
+    const pem = jwkToPem(keys[0])
+    return { key: pem }
+  } catch (err) {
+    throw Boom.internal(`Cannot verify auth token: ${err.message}`)
+  }
+}
+```
+
+<Note>
+The system uses the first key from the JWKS endpoint. Key rotation is supported through JWKS polling.
+</Note>
+
+## JWT Token Structure
+
+The JWT token decoded by the system contains:
+
+<CodeGroup>
+```json JWT Payload
+{
+  "sub": "user-id-123",
+  "roles": [
+    "org-123:Chief Executive Officer:Local Authority Name"
+  ],
+  "relationships": [
+    "rel-456:org-123:Local Authority Name",
+    "rel-789:org-999:Another Authority"
+  ],
+  "currentRelationshipId": "rel-456",
+  "iss": "http://localhost:3200/cdp-defra-id-stub",
+  "exp": 1234567890
+}
+```
+
+```javascript Extracted Credentials
+{
+  userId: "user-id-123",
+  role: "Chief Executive Officer",
+  currentOrganisation: "Local Authority Name"
+}
+```
+</CodeGroup>
+
+## Token Validation
+
+The `jwtValidate` function performs custom validation and extracts user credentials (`src/plugins/auth.js:40-68`):
+
+```javascript
+export const jwtValidate = (decoded, request, _h) => {
+  const { sub: userId, roles } = decoded
+  request.logger.debug(`DecodedJWT is ${JSON.stringify(decoded)}`)
+  const currentOrganisation = extractCurrentLocalAuthority(decoded)
+
+  if (!roles) {
+    return { isValid: false }
+  }
+
+  // Extract role
+  let role = null
+  if (Array.isArray(roles) && roles.length > 0) {
+    const firstRoleParts = roles[0].split(':')
+    role = firstRoleParts[1] || null
+  }
+
+  return {
+    isValid: true,
+    credentials: {
+      userId,
+      role,
+      currentOrganisation,
+      ...decoded
+    }
+  }
+}
+```
+
+### Validation Rules
+
+1. **Roles Required** - Token must contain at least one role
+2. **Algorithm Check** - Only RS256 is accepted
+3. **Issuer Validation** - Token issuer must match configured issuer
+4. **Signature Verification** - Token signature validated against JWKS public key
+5. **Expiration Check** - Token must not be expired
+
+<Warning>
+If any validation rule fails, the request is rejected with a 401 Unauthorized response.
+</Warning>
+
+## Organisation Extraction
+
+The system extracts the current local authority from the relationship structure (`src/plugins/auth.js:70-86`):
+
+```javascript
+export const extractCurrentLocalAuthority = (token) => {
+  let organisationName = ''
+  if (Array.isArray(token.relationships) && token.currentRelationshipId) {
+    const matched = token.relationships.find((rel) => {
+      const parts = rel.split(':')
+      return parts[0] === token.currentRelationshipId
+    })
+
+    if (matched) {
+      const parts = matched.split(':')
+      if (parts.length >= 3) {
+        organisationName = parts[2]  // Index 2 is the org name
+      }
+    }
+  }
+  return organisationName
+}
+```
+
+### Relationship String Format
+
+```
+relationshipId:organisationId:organisationName
+```
+
+<Accordion title="Example Relationship Parsing">
+**Input:**
+```
+relationships: ["rel-456:org-123:Birmingham Council"]
+currentRelationshipId: "rel-456"
+```
+
+**Output:**
+```
+currentOrganisation: "Birmingham Council"
+```
+</Accordion>
+
+## Configuration
+
+Authentication is configured in `src/config.js:132-146`:
+
+```javascript
+auth: {
+  discoveryUrl: {
+    doc: 'URI for fetching Metadata document for the signup signin policy',
+    format: String,
+    default: 'http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration',
+    env: 'DEFRA_ID_DISCOVERY_URL'
+  },
+  issuer: {
+    doc: 'The expected issuer for JWT validation',
+    format: String,
+    default: 'http://localhost:3200/cdp-defra-id-stub',
+    env: 'DEFRA_ID_ISSUER'
+  }
+}
+```
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `DEFRA_ID_DISCOVERY_URL` | OIDC discovery endpoint | `https://defra-id.example.com/.well-known/openid-configuration` |
+| `DEFRA_ID_ISSUER` | Expected JWT issuer | `https://defra-id.example.com` |
+
+## Using Authentication in Routes
+
+By default, all routes require authentication:
+
+```javascript
+// Authentication required (default)
+server.route({
+  method: 'GET',
+  path: '/bank-details/{localAuthority}',
+  handler: async (request, h) => {
+    // Access authenticated user
+    const { userId, role, currentOrganisation } = request.auth.credentials
+    // ...
+  }
+})
+```
+
+### Accessing Credentials
+
+Within route handlers, access the authenticated user's credentials:
+
+```javascript
+const credentials = request.auth.credentials
+console.log(credentials.userId)              // "user-id-123"
+console.log(credentials.role)                // "Chief Executive Officer"
+console.log(credentials.currentOrganisation) // "Birmingham Council"
+```
+
+## Health Check Exemption
+
+The `/health` endpoint is exempt from authentication to allow load balancers and monitoring tools to check service status without credentials.
+
+<Info>
+See the [Authorization](/concepts/authorization) page for details on role-based access control applied after authentication.
+</Info>

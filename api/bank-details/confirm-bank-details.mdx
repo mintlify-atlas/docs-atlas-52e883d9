@@ -1,0 +1,274 @@
+---
+title: "Confirm Bank Details"
+description: "Confirm and finalize bank account details for a local authority"
+api: "PUT /bank-details"
+---
+
+## Overview
+
+Confirms and finalizes bank account details that have been previously created. This endpoint is used to mark bank details as verified and ready for use in payment processing.
+
+<Warning>
+This endpoint requires specific authorization. Only users with the `confirmBankDetails` permission can confirm bank details. Unauthorized users will receive a 403 Forbidden response.
+</Warning>
+
+## Authentication & Authorization
+
+**Required Permission**: `confirmBankDetails`
+
+**Allowed Roles**: 
+- CEO (Chief Executive Officer)
+- WO (Waste Officer)
+
+**Authorization Check**: The endpoint checks `request.auth.isAuthorized` and rejects requests from unauthorized users with a 403 Forbidden error.
+
+## Request
+
+### Body Parameters
+
+<ParamField body="confirmed" type="boolean" required>
+  Must be `true` to confirm the bank details. The validation explicitly requires this value to be true.
+</ParamField>
+
+<ParamField body="requesterEmail" type="string" required>
+  Email address of the person confirming the bank details. Whitespace is trimmed.
+</ParamField>
+
+<ParamField body="organizationId" type="string" required>
+  The unique identifier for the organization whose bank details are being confirmed
+</ParamField>
+
+<Note>
+The validation includes `stripUnknown: true`, which means any additional fields not listed above will be automatically removed from the request.
+</Note>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X PUT 'https://api.example.com/bank-details' \
+  -H 'Authorization: Bearer YOUR_JWT_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "confirmed": true,
+    "requesterEmail": "waste.officer@citycouncil.gov.uk",
+    "organizationId": "ORG123"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.example.com/bank-details',
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Bearer YOUR_JWT_TOKEN',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      confirmed: true,
+      requesterEmail: 'waste.officer@citycouncil.gov.uk',
+      organizationId: 'ORG123'
+    })
+  }
+);
+
+const result = await response.json();
+```
+
+```json JSON Body
+{
+  "confirmed": true,
+  "requesterEmail": "waste.officer@citycouncil.gov.uk",
+  "organizationId": "ORG123"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+### Success Response (200 OK or 201 Created)
+
+Returns the response from the FSS API after successfully confirming the bank details. The status code is passed through from the FSS API response.
+
+<ResponseField name="result" type="object">
+  Contains the result of the bank details confirmation operation from the FSS API
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Status of the operation (typically "success")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message from the FSS API
+</ResponseField>
+
+```json Example Response
+{
+  "result": {
+    "status": "success",
+    "message": "Bank details confirmed successfully",
+    "confirmedAt": "2024-03-15T10:30:00Z",
+    "confirmedBy": "waste.officer@citycouncil.gov.uk"
+  }
+}
+```
+
+### Error Responses
+
+#### 403 Forbidden
+
+Returned when the user does not have permission to confirm bank details.
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code (403)
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error type ("Forbidden")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Error message indicating the user's role is not allowed to confirm bank details
+</ResponseField>
+
+```json Example Error Response
+{
+  "statusCode": 403,
+  "error": "Forbidden",
+  "message": "Head of Finance not allowed to confirm bank details"
+}
+```
+
+#### 400 Bad Request
+
+Returned when the request validation fails. Common validation errors include:
+- Missing required fields (`confirmed`, `requesterEmail`, `organizationId`)
+- `confirmed` field is not `true`
+- Invalid email format
+
+```json Example Error Response
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Invalid request payload input",
+  "validation": {
+    "source": "payload",
+    "keys": ["confirmed"],
+    "message": "confirmed must be [true]"
+  }
+}
+```
+
+#### 500 Internal Server Error
+
+Returned when the FSS API request fails or a server error occurs.
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code (500)
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error type ("Internal Server Error")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Error message ("Failed to confirm bank details" or "Error confirming bank details")
+</ResponseField>
+
+```json Example Error Response
+{
+  "statusCode": 500,
+  "error": "Internal Server Error",
+  "message": "Failed to confirm bank details"
+}
+```
+
+## Implementation Details
+
+### Confirmation Workflow
+
+The typical workflow for bank details is:
+
+1. **Create**: Bank details are created using `POST /bank-details` (by CEO)
+2. **Review**: Authorized users can view the details using `GET /bank-details/{localAuthority}`
+3. **Confirm**: Authorized users confirm the details using `PUT /bank-details` (by CEO or WO)
+4. **Finalized**: Once confirmed, the bank details are marked as verified and ready for payment processing
+
+### Authorization Flow
+
+1. The request arrives with JWT authentication
+2. The `access-control` plugin extracts the user's role
+3. The role is checked against the `CONFIRM_BANK_DETAILS` configuration
+4. If unauthorized, the handler returns 403 Forbidden (src/handler/bankDetails/put.js:15-20)
+5. If authorized, the request proceeds to the FSS API
+
+### External API Integration
+
+The endpoint forwards requests to the FSS API:
+- **Base URL**: Configured via `FSS_API_URL` environment variable
+- **Endpoint**: `/sn_gsm/bank_details/confirm_bank_details`
+- **Method**: PUT
+- **Authentication**: Uses `x-sn-apikey` header with the API key from `FSS_API_KEY`
+- **Response**: The HTTP status code from the FSS API is passed through to the client
+
+### Audit Logging
+
+Confirmation attempts are logged for audit purposes, but only for specific roles:
+- **Action**: `BankDetailsConfirmed`
+- **Recorded For**: Only Head of Finance (HOF) role
+- **Includes**: Request outcome (Success/Failure) and HTTP status code
+
+<Note>
+The audit logging for confirmation is role-specific and only logs when the HOF role confirms bank details (src/handler/bankDetails/put.js:87-88). Other authorized roles (CEO, WO) performing confirmations are not currently logged with the `BankDetailsConfirmed` action.
+</Note>
+
+The audit logging occurs at:
+- Success: src/handler/bankDetails/put.js:62-67
+- Failure: src/handler/bankDetails/put.js:46-51, 74
+
+### Validation Requirements
+
+The `confirmed` field has strict validation:
+
+```javascript
+confirmed: Joi.boolean().valid(true).required()
+```
+
+This means:
+- The field must be present (required)
+- The field must be a boolean
+- The field must have the value `true` (no other value is accepted)
+
+Attempting to confirm with `confirmed: false` will result in a 400 Bad Request error.
+
+## Environment Configuration
+
+The following environment variables affect this endpoint:
+
+- `FSS_API_URL`: Base URL for the FSS API (default: `http://localhost:3003/api`)
+- `FSS_API_KEY`: API key for authenticating with FSS
+- `CONFIRM_BANK_DETAILS`: Comma-separated list of roles allowed to confirm bank details (default: `["CEO", "WO"]`)
+
+## Use Cases
+
+### Primary Use Case
+A Waste Officer reviews bank details that were created by a CEO and confirms they are correct and ready for payment processing.
+
+### Secondary Use Case
+A CEO creates and immediately confirms their own organization's bank details in a single session.
+
+### Workflow Integration
+This endpoint is typically called after:
+1. Bank details have been created via `POST /bank-details`
+2. The details have been reviewed via `GET /bank-details/{localAuthority}`
+3. Any necessary corrections have been made
+
+## Source Code References
+
+- Route definition: src/routes/bankDetails.js:19-31
+- Handler implementation: src/handler/bankDetails/put.js:12-77
+- Access control: src/plugins/access-control.js:5
+- Configuration: src/config.js:147-158, 178-183

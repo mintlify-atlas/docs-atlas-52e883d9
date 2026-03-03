@@ -1,0 +1,468 @@
+---
+title: Testing
+description: Run tests and generate coverage reports using Vitest
+---
+
+## Overview
+
+EPR LAPS Backend uses [Vitest](https://vitest.dev/) as the test framework with [V8 coverage](https://v8.dev/blog/javascript-code-coverage) for code coverage reporting.
+
+<Note>
+All tests are configured to run in UTC timezone (`TZ=UTC`) to ensure consistent date/time handling.
+</Note>
+
+## Running Tests
+
+### Test Commands
+
+<CodeGroup>
+```bash Run All Tests
+npm test
+```
+
+```bash Watch Mode
+npm run test:watch
+```
+</CodeGroup>
+
+**Available scripts from `package.json`:**
+
+```json
+{
+  "scripts": {
+    "test": "TZ=UTC vitest run --coverage",
+    "test:watch": "TZ=UTC vitest"
+  }
+}
+```
+
+### Test Modes
+
+<Steps>
+  <Step title="Single Run (CI Mode)">
+    Run all tests once and generate coverage report:
+    
+    ```bash
+    npm test
+    ```
+    
+    This is the default mode for CI/CD pipelines.
+  </Step>
+
+  <Step title="Watch Mode (Development)">
+    Run tests in watch mode with hot reload:
+    
+    ```bash
+    npm run test:watch
+    ```
+    
+    Tests automatically re-run when files change.
+  </Step>
+</Steps>
+
+## Test Configuration
+
+Test configuration is defined in `vitest.config.js`:
+
+```javascript
+import { defineConfig, configDefaults } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'node',
+    clearMocks: true,
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text', 'lcov'],
+      include: ['src/**'],
+      exclude: [...configDefaults.exclude, 'coverage']
+    },
+    setupFiles: ['.vite/mongo-memory-server.js', '.vite/setup-files.js']
+  }
+})
+```
+
+### Configuration Options
+
+**Global Settings:**
+
+- `globals: true` - Enables global test APIs (`describe`, `it`, `expect`) without imports
+- `environment: 'node'` - Runs tests in Node.js environment
+- `clearMocks: true` - Automatically clears mock state between tests
+
+**Setup Files:**
+
+- `.vite/mongo-memory-server.js` - Configures in-memory MongoDB for tests
+- `.vite/setup-files.js` - Additional test setup and global configuration
+
+## Coverage Reports
+
+### Coverage Configuration
+
+```javascript
+coverage: {
+  provider: 'v8',
+  reportsDirectory: './coverage',
+  reporter: ['text', 'lcov'],
+  include: ['src/**'],
+  exclude: [...configDefaults.exclude, 'coverage']
+}
+```
+
+**Settings:**
+
+- **Provider:** V8 (built into Node.js, fast and accurate)
+- **Output Directory:** `./coverage`
+- **Reporters:** 
+  - `text` - Console output with coverage summary
+  - `lcov` - HTML report and lcov.info for CI tools
+- **Include:** All files in `src/**`
+- **Exclude:** Default exclusions plus coverage directory
+
+### Viewing Coverage
+
+<Steps>
+  <Step title="Run tests with coverage">
+    ```bash
+    npm test
+    ```
+  </Step>
+
+  <Step title="View console summary">
+    Coverage summary is displayed in the terminal:
+    
+    ```
+    % Coverage report from v8
+    --------|---------|---------|---------|---------
+    File    | % Stmts | % Branch| % Funcs | % Lines 
+    --------|---------|---------|---------|---------
+    All     |   85.23 |   78.45 |   92.11 |   85.23
+    --------|---------|---------|---------|---------
+    ```
+  </Step>
+
+  <Step title="Open HTML report">
+    Open the detailed HTML coverage report:
+    
+    ```bash
+    open coverage/lcov-report/index.html
+    ```
+    
+    Or on Linux:
+    ```bash
+    xdg-open coverage/lcov-report/index.html
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+The HTML coverage report provides interactive line-by-line coverage visualization, making it easy to identify untested code.
+</Tip>
+
+## MongoDB Test Setup
+
+Tests use [vitest-mongodb](https://github.com/vitest-dev/vitest-mongodb) with MongoDB Memory Server for isolated database testing.
+
+**From `package.json` devDependencies:**
+
+```json
+{
+  "vitest-mongodb": "1.0.3"
+}
+```
+
+### Using MongoDB in Tests
+
+```javascript
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { MongoClient } from 'mongodb'
+
+let client
+let db
+
+beforeAll(async () => {
+  // MongoDB Memory Server is configured in setup files
+  client = new MongoClient(global.__MONGO_URI__)
+  await client.connect()
+  db = client.db(global.__MONGO_DB_NAME__)
+})
+
+afterAll(async () => {
+  await client.close()
+})
+
+describe('Database operations', () => {
+  it('should insert and retrieve data', async () => {
+    const collection = db.collection('test')
+    
+    await collection.insertOne({ name: 'Test' })
+    const result = await collection.findOne({ name: 'Test' })
+    
+    expect(result.name).toBe('Test')
+  })
+})
+```
+
+## Mocking
+
+### HTTP Request Mocking
+
+Tests use [vitest-fetch-mock](https://github.com/IanVS/vitest-fetch-mock) for mocking fetch requests:
+
+**From `package.json` devDependencies:**
+
+```json
+{
+  "vitest-fetch-mock": "0.4.5"
+}
+```
+
+**Example:**
+
+```javascript
+import { describe, it, expect, vi } from 'vitest'
+import { fetch } from 'undici'
+
+vi.mock('undici', () => ({
+  fetch: vi.fn()
+}))
+
+describe('API client', () => {
+  it('should fetch data from external API', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: 'test' })
+    })
+    
+    const result = await myApiClient.getData()
+    
+    expect(fetch).toHaveBeenCalledWith('https://api.example.com/data')
+    expect(result).toEqual({ data: 'test' })
+  })
+})
+```
+
+### Auto-Clearing Mocks
+
+Mocks are automatically cleared between tests due to `clearMocks: true` in the config:
+
+```javascript
+// No need to manually clear mocks
+describe('Test suite', () => {
+  it('test 1', () => {
+    const fn = vi.fn()
+    fn()
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+  
+  it('test 2', () => {
+    // Mock is automatically cleared
+    const fn = vi.fn()
+    expect(fn).not.toHaveBeenCalled()
+  })
+})
+```
+
+## Writing Tests
+
+### Test Structure
+
+<CodeGroup>
+```javascript Basic Test
+import { describe, it, expect } from 'vitest'
+
+describe('Feature name', () => {
+  it('should do something', () => {
+    const result = myFunction()
+    expect(result).toBe(expected)
+  })
+})
+```
+
+```javascript Async Test
+import { describe, it, expect } from 'vitest'
+
+describe('Async feature', () => {
+  it('should handle async operations', async () => {
+    const result = await myAsyncFunction()
+    expect(result).toEqual({ success: true })
+  })
+})
+```
+
+```javascript With Hooks
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+
+let server
+
+beforeEach(async () => {
+  server = await createServer()
+})
+
+afterEach(async () => {
+  await server.stop()
+})
+
+describe('Server tests', () => {
+  it('should start successfully', () => {
+    expect(server.info.started).toBeGreaterThan(0)
+  })
+})
+```
+</CodeGroup>
+
+### Global Test APIs
+
+<Note>
+With `globals: true`, you don't need to import test APIs:
+</Note>
+
+```javascript
+// No imports needed for:
+// describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi
+
+describe('My feature', () => {
+  it('works', () => {
+    expect(true).toBe(true)
+  })
+})
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Write descriptive test names">
+    ```javascript
+    // Good
+    it('should return 404 when organisation does not exist', async () => {})
+    
+    // Bad
+    it('returns error', async () => {})
+    ```
+  </Step>
+
+  <Step title="Test one thing per test">
+    ```javascript
+    // Good - focused test
+    it('should create bank details', async () => {
+      const result = await createBankDetails(data)
+      expect(result.success).toBe(true)
+    })
+    
+    it('should validate required fields', async () => {
+      await expect(createBankDetails({})).rejects.toThrow()
+    })
+    
+    // Bad - testing multiple things
+    it('should handle bank details', async () => {
+      // Tests creation, validation, updating, deletion...
+    })
+    ```
+  </Step>
+
+  <Step title="Use setup and teardown hooks">
+    ```javascript
+    describe('Database tests', () => {
+      beforeEach(async () => {
+        await seedDatabase()
+      })
+      
+      afterEach(async () => {
+        await cleanDatabase()
+      })
+      
+      it('test with clean state', async () => {
+        // Each test starts with fresh seeded data
+      })
+    })
+    ```
+  </Step>
+
+  <Step title="Mock external dependencies">
+    ```javascript
+    import { vi } from 'vitest'
+    
+    vi.mock('./external-api', () => ({
+      fetchData: vi.fn().mockResolvedValue({ data: 'test' })
+    }))
+    
+    // Now test your code in isolation
+    ```
+  </Step>
+</Steps>
+
+## Continuous Integration
+
+In CI/CD pipelines, run tests with coverage:
+
+```yaml
+# Example GitHub Actions
+steps:
+  - name: Run tests
+    run: npm test
+  
+  - name: Upload coverage
+    uses: codecov/codecov-action@v3
+    with:
+      files: ./coverage/lcov.info
+```
+
+<Tip>
+The `lcov.info` file in the coverage directory is compatible with most CI coverage tools like Codecov, Coveralls, and SonarCloud.
+</Tip>
+
+## Debugging Tests
+
+### Run Specific Tests
+
+```bash
+# Run tests in specific file
+npm test src/api/bank-details.test.js
+
+# Run tests matching pattern
+npm test -- --grep "bank details"
+```
+
+### Debug with Node Inspector
+
+```bash
+node --inspect-brk node_modules/.bin/vitest run
+```
+
+Then open `chrome://inspect` in Chrome to debug.
+
+## Troubleshooting
+
+### Tests Hang or Timeout
+
+<Warning>
+Ensure all async operations are properly awaited and resources are cleaned up:
+
+```javascript
+afterEach(async () => {
+  await server.stop()
+  await db.close()
+})
+```
+</Warning>
+
+### MongoDB Connection Issues
+
+Verify MongoDB Memory Server is configured correctly in `.vite/mongo-memory-server.js`.
+
+### Coverage Not Generated
+
+Ensure files are in the `src/**` directory and not excluded by the configuration.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Setup" icon="laptop-code" href="/development/local-setup">
+    Set up your development environment
+  </Card>
+  <Card title="Configuration" icon="gear" href="/development/configuration">
+    Learn about configuration options
+  </Card>
+</CardGroup>

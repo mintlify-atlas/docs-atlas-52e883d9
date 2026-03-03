@@ -1,0 +1,269 @@
+---
+title: "Create Bank Details"
+description: "Create or update bank account details for a local authority"
+api: "POST /bank-details"
+---
+
+## Overview
+
+Creates or updates bank account information for a local authority. This endpoint forwards the request to the FSS (Financial Support System) API to store the bank details.
+
+<Warning>
+This endpoint requires specific authorization. Only users with the `createBankDetails` permission can create or update bank details. Unauthorized users will receive a 403 Forbidden response.
+</Warning>
+
+## Authentication & Authorization
+
+**Required Permission**: `createBankDetails`
+
+**Allowed Roles**: CEO (Chief Executive Officer)
+
+**Authorization Check**: The endpoint checks `request.auth.isAuthorized` and rejects requests from unauthorized users with a 403 Forbidden error.
+
+## Request
+
+### Body Parameters
+
+<ParamField body="localAuthority" type="string" required>
+  The identifier for the local authority. Whitespace is trimmed.
+</ParamField>
+
+<ParamField body="accountName" type="string" required>
+  The name on the bank account. Maximum length: 100 characters. Whitespace is trimmed.
+</ParamField>
+
+<ParamField body="sortCode" type="string" required>
+  The bank sort code. Hyphens and spaces are automatically removed during validation.
+  
+  **Format**: Can be provided as "12-34-56" or "123456" - both are accepted
+</ParamField>
+
+<ParamField body="accountNumber" type="string" required>
+  The bank account number (typically 8 digits)
+</ParamField>
+
+<ParamField body="requesterEmail" type="string" required>
+  Email address of the person requesting the bank details creation. Whitespace is trimmed.
+</ParamField>
+
+<ParamField body="jpp" type="string" required>
+  Job reference or JPP (Job Payment Proposal) identifier
+</ParamField>
+
+<ParamField body="organizationId" type="string" required>
+  The unique identifier for the organization
+</ParamField>
+
+<Note>
+The validation includes `stripUnknown: true`, which means any additional fields not listed above will be automatically removed from the request.
+</Note>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST 'https://api.example.com/bank-details' \
+  -H 'Authorization: Bearer YOUR_JWT_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "localAuthority": "LA12345",
+    "accountName": "City Council Finance",
+    "sortCode": "12-34-56",
+    "accountNumber": "12345678",
+    "requesterEmail": "finance@citycouncil.gov.uk",
+    "jpp": "JPP-2024-001",
+    "organizationId": "ORG123"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.example.com/bank-details',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer YOUR_JWT_TOKEN',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      localAuthority: 'LA12345',
+      accountName: 'City Council Finance',
+      sortCode: '12-34-56',
+      accountNumber: '12345678',
+      requesterEmail: 'finance@citycouncil.gov.uk',
+      jpp: 'JPP-2024-001',
+      organizationId: 'ORG123'
+    })
+  }
+);
+
+const result = await response.json();
+```
+
+```json JSON Body
+{
+  "localAuthority": "LA12345",
+  "accountName": "City Council Finance",
+  "sortCode": "12-34-56",
+  "accountNumber": "12345678",
+  "requesterEmail": "finance@citycouncil.gov.uk",
+  "jpp": "JPP-2024-001",
+  "organizationId": "ORG123"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+### Success Response (201 Created)
+
+Returns the response from the FSS API after successfully creating the bank details.
+
+<ResponseField name="result" type="object">
+  Contains the result of the bank details creation operation from the FSS API
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Status of the operation (typically "success")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message from the FSS API
+</ResponseField>
+
+```json Example Response
+{
+  "result": {
+    "status": "success",
+    "message": "Bank details created successfully",
+    "recordId": "BD-2024-001"
+  }
+}
+```
+
+### Error Responses
+
+#### 403 Forbidden
+
+Returned when the user does not have permission to create bank details.
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code (403)
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error type ("Forbidden")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Error message indicating the user's role is not allowed to create bank details
+</ResponseField>
+
+```json Example Error Response
+{
+  "statusCode": 403,
+  "error": "Forbidden",
+  "message": "Head of Finance not allowed to create bank details"
+}
+```
+
+#### 400 Bad Request
+
+Returned when the request validation fails (missing required fields, invalid format, etc.).
+
+```json Example Error Response
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Invalid request payload input",
+  "validation": {
+    "source": "payload",
+    "keys": ["accountName"]
+  }
+}
+```
+
+#### 500 Internal Server Error
+
+Returned when the FSS API request fails or a server error occurs.
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code (500)
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error type ("Internal Server Error")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Error message ("Failed to create bank details")
+</ResponseField>
+
+```json Example Error Response
+{
+  "statusCode": 500,
+  "error": "Internal Server Error",
+  "message": "Failed to create bank details"
+}
+```
+
+## Implementation Details
+
+### Sort Code Processing
+
+The sort code field has custom validation that automatically removes hyphens and spaces:
+
+```javascript
+sortCode: Joi.string().custom((value) => {
+  return value.replaceAll('-', '').replaceAll(' ', '')
+})
+```
+
+This means all these formats are valid and will be normalized:
+- `"12-34-56"` → `"123456"`
+- `"12 34 56"` → `"123456"`
+- `"123456"` → `"123456"`
+
+### Authorization Flow
+
+1. The request arrives with JWT authentication
+2. The `access-control` plugin extracts the user's role
+3. The role is checked against the `CREATE_BANK_DETAILS` configuration
+4. If unauthorized, the handler returns 403 Forbidden (src/handler/bankDetails/post.js:14-17)
+5. If authorized, the request proceeds to the FSS API
+
+### External API Integration
+
+The endpoint forwards requests to the FSS API:
+- **Base URL**: Configured via `FSS_API_URL` environment variable
+- **Endpoint**: `/sn_gsm/bank_details/update_bank_details`
+- **Method**: POST
+- **Authentication**: Uses `x-sn-apikey` header with the API key from `FSS_API_KEY`
+
+### Audit Logging
+
+All creation attempts are logged for audit purposes:
+- **Action**: `BankDetailsCreated`
+- **Recorded For**: Only authorized users
+- **Includes**: Request outcome (Success/Failure) and HTTP status code
+
+The audit logging occurs at:
+- Success: src/handler/bankDetails/post.js:55-60
+- Failure: src/handler/bankDetails/post.js:42-47, 65
+
+## Environment Configuration
+
+The following environment variables affect this endpoint:
+
+- `FSS_API_URL`: Base URL for the FSS API (default: `http://localhost:3003/api`)
+- `FSS_API_KEY`: API key for authenticating with FSS
+- `CREATE_BANK_DETAILS`: Comma-separated list of roles allowed to create bank details (default: `["CEO"]`)
+
+## Source Code References
+
+- Route definition: src/routes/bankDetails.js:33-52
+- Handler implementation: src/handler/bankDetails/post.js:11-68
+- Access control: src/plugins/access-control.js:8
+- Configuration: src/config.js:147-158, 184-189

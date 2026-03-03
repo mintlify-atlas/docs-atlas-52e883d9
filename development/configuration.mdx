@@ -1,0 +1,389 @@
+---
+title: Configuration
+description: Application configuration using convict with environment variables
+---
+
+## Overview
+
+EPR LAPS Backend uses [convict](https://github.com/mozilla/node-convict) for configuration management with type validation and environment-based defaults. Configuration is defined in `src/config.js`.
+
+<Note>
+All configuration values can be overridden using environment variables.
+</Note>
+
+## Core Configuration
+
+### Service Settings
+
+```javascript
+serviceVersion: {
+  doc: 'The service version, injected into Docker container in CDP environments',
+  format: String,
+  nullable: true,
+  default: null,
+  env: 'SERVICE_VERSION'
+}
+
+serviceName: {
+  doc: 'Api Service Name',
+  format: String,
+  default: 'epr-laps-backend'
+}
+```
+
+**Environment Variables:**
+- `SERVICE_VERSION` - Set automatically in CDP environments
+
+### Server Configuration
+
+```javascript
+host: {
+  doc: 'The IP address to bind',
+  format: 'ipaddress',
+  default: '0.0.0.0',
+  env: 'HOST'
+}
+
+port: {
+  doc: 'The port to bind',
+  format: 'port',
+  default: 3001,
+  env: 'PORT'
+}
+```
+
+**Environment Variables:**
+- `HOST` - IP address to bind (default: `0.0.0.0`)
+- `PORT` - Server port (default: `3001`)
+
+**Example:**
+```bash
+HOST=127.0.0.1 PORT=8080 npm start
+```
+
+### Environment Detection
+
+```javascript
+cdpEnvironment: {
+  doc: 'The CDP environment the app is running in',
+  format: ['local', 'infra-dev', 'management', 'dev', 'test', 'perf-test', 'ext-test', 'prod'],
+  default: 'local',
+  env: 'ENVIRONMENT'
+}
+```
+
+**Environment Variables:**
+- `ENVIRONMENT` - Current environment (default: `local`)
+
+**Valid values:** `local`, `infra-dev`, `management`, `dev`, `test`, `perf-test`, `ext-test`, `prod`
+
+## Logging Configuration
+
+<Tip>
+Logging is automatically disabled in test environments (`NODE_ENV=test`).
+</Tip>
+
+### Log Settings
+
+```javascript
+log: {
+  isEnabled: {
+    doc: 'Is logging enabled',
+    format: Boolean,
+    default: !isTest,  // false in test, true otherwise
+    env: 'LOG_ENABLED'
+  },
+  level: {
+    doc: 'Logging level',
+    format: ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'],
+    default: 'debug',
+    env: 'LOG_LEVEL'
+  },
+  format: {
+    doc: 'Format to output logs in',
+    format: ['ecs', 'pino-pretty'],
+    default: isProduction ? 'ecs' : 'pino-pretty',
+    env: 'LOG_FORMAT'
+  }
+}
+```
+
+**Environment Variables:**
+- `LOG_ENABLED` - Enable/disable logging (default: `true` except in tests)
+- `LOG_LEVEL` - Log level (default: `debug`)
+- `LOG_FORMAT` - Output format: `ecs` for production, `pino-pretty` for development
+
+**Log Levels:** `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent`
+
+<CodeGroup>
+```bash Development
+LOG_LEVEL=debug LOG_FORMAT=pino-pretty npm run dev
+```
+
+```bash Production
+LOG_LEVEL=info LOG_FORMAT=ecs npm start
+```
+</CodeGroup>
+
+### Log Redaction
+
+<Warning>
+Sensitive data is automatically redacted in production logs, including authorization headers and cookies.
+</Warning>
+
+```javascript
+redact: {
+  doc: 'Log paths to redact',
+  format: Array,
+  default: isProduction
+    ? ['req.headers.authorization', 'req.headers.cookie', 'res.headers']
+    : ['req', 'res', 'responseTime']
+}
+```
+
+## MongoDB Configuration
+
+```javascript
+mongo: {
+  mongoUrl: {
+    doc: 'URI for mongodb',
+    format: String,
+    default: 'mongodb://127.0.0.1:27017/',
+    env: 'MONGO_URI'
+  },
+  databaseName: {
+    doc: 'database for mongodb',
+    format: String,
+    default: 'epr-laps-backend',
+    env: 'MONGO_DATABASE'
+  },
+  mongoOptions: {
+    retryWrites: {
+      doc: 'enable mongo write retries',
+      format: Boolean,
+      default: false
+    },
+    readPreference: {
+      doc: 'mongo read preference',
+      format: ['primary', 'primaryPreferred', 'secondary', 'secondaryPreferred', 'nearest'],
+      default: 'secondary'
+    }
+  }
+}
+```
+
+**Environment Variables:**
+- `MONGO_URI` - MongoDB connection string (default: `mongodb://127.0.0.1:27017/`)
+- `MONGO_DATABASE` - Database name (default: `epr-laps-backend`)
+
+**Example:**
+```bash
+MONGO_URI=mongodb://mongo:27017/ MONGO_DATABASE=myapp npm start
+```
+
+**Read Preferences:** `primary`, `primaryPreferred`, `secondary`, `secondaryPreferred`, `nearest`
+
+## Proxy Configuration
+
+See the dedicated [Proxy Setup](/development/proxy-setup) page for detailed proxy configuration.
+
+```javascript
+httpProxy: {
+  doc: 'HTTP Proxy URL',
+  format: String,
+  nullable: true,
+  default: null,
+  env: 'HTTP_PROXY'
+}
+```
+
+**Environment Variables:**
+- `HTTP_PROXY` - Forward proxy URL (optional)
+
+## Metrics and Tracing
+
+### Metrics
+
+```javascript
+isMetricsEnabled: {
+  doc: 'Enable metrics reporting',
+  format: Boolean,
+  default: isProduction,
+  env: 'ENABLE_METRICS'
+}
+```
+
+**Environment Variables:**
+- `ENABLE_METRICS` - Enable AWS embedded metrics (default: `true` in production)
+
+### Tracing
+
+```javascript
+tracing: {
+  header: {
+    doc: 'CDP tracing header name',
+    format: String,
+    default: 'x-cdp-request-id',
+    env: 'TRACING_HEADER'
+  }
+}
+```
+
+**Environment Variables:**
+- `TRACING_HEADER` - Header name for distributed tracing (default: `x-cdp-request-id`)
+
+## Authentication Configuration
+
+### Defra ID Integration
+
+```javascript
+auth: {
+  discoveryUrl: {
+    doc: 'URI for fetching Metadata document for the signup signin policy',
+    format: String,
+    default: 'http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration',
+    env: 'DEFRA_ID_DISCOVERY_URL'
+  },
+  issuer: {
+    doc: 'The expected issuer for JWT validation',
+    format: String,
+    default: 'http://localhost:3200/cdp-defra-id-stub',
+    env: 'DEFRA_ID_ISSUER'
+  }
+}
+```
+
+**Environment Variables:**
+- `DEFRA_ID_DISCOVERY_URL` - OpenID Connect discovery endpoint
+- `DEFRA_ID_ISSUER` - JWT issuer for validation
+
+## FSS API Configuration
+
+<Note>
+Financial Shared Services (FSS) API is used for bank details management.
+</Note>
+
+```javascript
+fssApiUrl: {
+  doc: 'FSS URL to get the bank details',
+  format: String,
+  default: 'http://localhost:3003/api',
+  env: 'FSS_API_URL'
+}
+
+fssAPIKey: {
+  doc: 'API key to be passed to FSS',
+  format: String,
+  default: 'some-api-key',
+  env: 'FSS_API_KEY'
+}
+
+fssEncryptionKey: {
+  doc: 'Base64-encoded encryption key for FSS bank details',
+  format: String,
+  default: '',
+  env: 'FSS_API_ENCRYPTION_KEY'
+}
+```
+
+**Environment Variables:**
+- `FSS_API_URL` - FSS API base URL (default: `http://localhost:3003/api`)
+- `FSS_API_KEY` - API key for authentication
+- `FSS_API_ENCRYPTION_KEY` - Base64-encoded encryption key for bank details
+
+## Authorization Configuration
+
+### Role-Based Permissions
+
+```javascript
+authorization: {
+  viewFullBankDetails: {
+    doc: 'Permission roles allowed to view full bank details',
+    format: Array,
+    env: 'VIEW_FULL_BANK_DETAILS',
+    default: ['CEO']
+  },
+  confirmBankDetails: {
+    doc: 'Permission roles allowed to confirm bank details',
+    format: Array,
+    env: 'CONFIRM_BANK_DETAILS',
+    default: ['CEO', 'WO']
+  },
+  createBankDetails: {
+    doc: 'Permission roles allowed to create bank details',
+    format: Array,
+    env: 'CREATE_BANK_DETAILS',
+    default: ['CEO']
+  },
+  listFinanceDocuments: {
+    doc: 'API key to be passed to list finance documents',
+    format: Array,
+    env: 'LIST_FINANCE_DOCUMENTS',
+    default: ['CEO']
+  },
+  accessFinanceDocument: {
+    doc: 'API key to be passed to FSS',
+    format: Array,
+    env: 'ACCESS_FINANCE_DOCUMENT',
+    default: ['CEO']
+  }
+}
+```
+
+**Environment Variables:**
+- `VIEW_FULL_BANK_DETAILS` - Roles that can view complete bank details
+- `CONFIRM_BANK_DETAILS` - Roles that can confirm bank details
+- `CREATE_BANK_DETAILS` - Roles that can create bank details
+- `LIST_FINANCE_DOCUMENTS` - Roles that can list finance documents
+- `ACCESS_FINANCE_DOCUMENT` - Roles that can access finance documents
+
+**Available Roles:** `CEO` (Chief Executive Officer), `WO` (Waste Officer)
+
+## Application-Specific Configuration
+
+### Fiscal Year
+
+```javascript
+currentFiscalYear: {
+  doc: 'Fiscal year range to pass to frontend',
+  format: String,
+  default: '2025 to 2026',
+  env: 'SINGLE_PAYMENT_DOC_WARNING_YEAR'
+}
+```
+
+**Environment Variables:**
+- `SINGLE_PAYMENT_DOC_WARNING_YEAR` - Current fiscal year display (default: `2025 to 2026`)
+
+## Configuration Validation
+
+<Warning>
+The configuration uses strict validation. Invalid values or unknown keys will cause the application to fail at startup.
+</Warning>
+
+```javascript
+config.validate({ allowed: 'strict' })
+```
+
+## Usage in Code
+
+Access configuration values using the `config` object:
+
+```javascript
+import { config } from './config.js'
+
+const port = config.get('port')
+const mongoUrl = config.get('mongo.mongoUrl')
+const logLevel = config.get('log.level')
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Proxy Setup" icon="network-wired" href="/development/proxy-setup">
+    Configure forward proxy for external HTTP requests
+  </Card>
+  <Card title="MongoDB Locks" icon="lock" href="/development/mongodb-locks">
+    Implement distributed locking with MongoDB
+  </Card>
+</CardGroup>

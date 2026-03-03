@@ -1,0 +1,360 @@
+---
+title: Authentication
+description: How to authenticate API requests using JWT tokens with the EPR LAPS Backend API
+---
+
+## Overview
+
+The EPR LAPS Backend API uses **JWT (JSON Web Token)** authentication with **RS256** algorithm for securing API endpoints. The API integrates with Defra ID for identity management and uses OpenID Connect (OIDC) for token validation.
+
+<Note>
+All API endpoints require authentication except the `/health` endpoint.
+</Note>
+
+## Authentication Flow
+
+The API implements the following JWT authentication flow:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant DefraID
+    participant JWKS
+
+    Client->>DefraID: 1. Authenticate with credentials
+    DefraID->>Client: 2. Return JWT token
+    Client->>API: 3. Request with Bearer token
+    API->>JWKS: 4. Fetch public keys (cached)
+    API->>API: 5. Verify JWT signature
+    API->>API: 6. Validate token claims
+    API->>Client: 7. Return response
+```
+
+## JWT Token Structure
+
+The JWT token must contain the following claims:
+
+### Required Claims
+
+| Claim | Type | Description |
+|-------|------|-------------|
+| `sub` | string | User ID (subject) |
+| `roles` | array | Array of role strings in format `<id>:<role>:<org>` |
+| `relationships` | array | User's organization relationships |
+| `currentRelationshipId` | string | Current active relationship ID |
+| `iss` | string | Token issuer (validated against config) |
+
+### Token Example
+
+```json
+{
+  "sub": "user-123",
+  "iss": "http://localhost:3200/cdp-defra-id-stub",
+  "roles": ["rel-1:CEO:birmingham-city-council"],
+  "relationships": [
+    "rel-1:birmingham-city-council:birmingham-city-council",
+    "rel-2:manchester-city-council:manchester-city-council"
+  ],
+  "currentRelationshipId": "rel-1",
+  "iat": 1709481600,
+  "exp": 1709485200
+}
+```
+
+## Configuration
+
+The API requires the following authentication configuration:
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DEFRA_ID_DISCOVERY_URL` | OIDC discovery endpoint | `http://localhost:3200/cdp-defra-id-stub/.well-known/openid-configuration` |
+| `DEFRA_ID_ISSUER` | Expected token issuer | `http://localhost:3200/cdp-defra-id-stub` |
+
+<Warning>
+The issuer claim in the JWT must exactly match the `DEFRA_ID_ISSUER` configuration value, or the token will be rejected.
+</Warning>
+
+## Token Validation Process
+
+The API performs the following validation steps (from `src/plugins/auth.js:40-68`):
+
+### 1. JWKS Key Retrieval
+
+The API fetches the JWKS (JSON Web Key Set) from the discovery document on startup:
+
+```javascript
+// Cached discovery document with jwks_uri
+const discoveryUrl = config.get('auth.discoveryUrl')
+const discoveryRes = await Wreck.get(discoveryUrl, { json: true })
+cachedDiscovery = discoveryRes.payload
+```
+
+### 2. Signature Verification
+
+The JWT signature is verified using the public key from JWKS:
+
+```javascript
+// Fetch JWKS keys and convert to PEM format
+const { payload } = await Wreck.get(jwksUri, { json: true })
+const keys = payload?.keys || []
+const pem = jwkToPem(keys[0])
+```
+
+The token is verified using the **RS256** algorithm with the issuer validation.
+
+### 3. Token Claims Validation
+
+The API validates the token claims (from `src/plugins/auth.js:40-68`):
+
+```javascript
+export const jwtValidate = (decoded, request, _h) => {
+  const { sub: userId, roles } = decoded
+  const currentOrganisation = extractCurrentLocalAuthority(decoded)
+
+  if (!roles) {
+    return { isValid: false }
+  }
+
+  // Extract role from roles array
+  let role = null
+  if (Array.isArray(roles) && roles.length > 0) {
+    const firstRoleParts = roles[0].split(':')
+    role = firstRoleParts[1] || null
+  }
+
+  return {
+    isValid: true,
+    credentials: {
+      userId,
+      role,
+      currentOrganisation,
+      ...decoded
+    }
+  }
+}
+```
+
+### 4. Organization Extraction
+
+The current organization is extracted from the token relationships (from `src/plugins/auth.js:70-86`):
+
+```javascript
+export const extractCurrentLocalAuthority = (token) => {
+  let organisationName = ''
+  if (Array.isArray(token.relationships) && token.currentRelationshipId) {
+    const matched = token.relationships.find((rel) => {
+      const parts = rel.split(':')
+      return parts[0] === token.currentRelationshipId
+    })
+
+    if (matched) {
+      const parts = matched.split(':')
+      if (parts.length >= 3) {
+        organisationName = parts[2]  // Organization name at index 2
+      }
+    }
+  }
+  return organisationName
+}
+```
+
+## Making Authenticated Requests
+
+### Request Format
+
+Include the JWT token in the `Authorization` header using the Bearer scheme:
+
+<CodeGroup>
+```bash curl
+curl -X GET http://localhost:3001/documents/birmingham-city-council \
+  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzIwMC9jZHAtZGVmcmEtaWQtc3R1YiIsInJvbGVzIjpbInJlbC0xOkNFTzpiaXJtaW5naGFtLWNpdHktY291bmNpbCJdLCJyZWxhdGlvbnNoaXBzIjpbInJlbC0xOmJpcm1pbmdoYW0tY2l0eS1jb3VuY2lsOmJpcm1pbmdoYW0tY2l0eS1jb3VuY2lsIl0sImN1cnJlbnRSZWxhdGlvbnNoaXBJZCI6InJlbC0xIn0..."
+```
+
+```javascript JavaScript (fetch)
+const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...';
+
+const response = await fetch('http://localhost:3001/documents/birmingham-city-council', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+});
+
+const data = await response.json();
+```
+
+```python Python (requests)
+import requests
+
+token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...'
+
+headers = {
+    'Authorization': f'Bearer {token}',
+    'Content-Type': 'application/json'
+}
+
+response = requests.get(
+    'http://localhost:3001/documents/birmingham-city-council',
+    headers=headers
+)
+
+data = response.json()
+```
+
+```javascript Node.js (axios)
+const axios = require('axios');
+
+const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...';
+
+const response = await axios.get(
+  'http://localhost:3001/documents/birmingham-city-council',
+  {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  }
+);
+
+const data = response.data;
+```
+</CodeGroup>
+
+## Credentials Available in Handlers
+
+After successful authentication, the following credentials are available in request handlers via `request.auth.credentials`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `userId` | string | User ID from `sub` claim |
+| `role` | string | User role (e.g., "CEO", "WO") |
+| `currentOrganisation` | string | Current organization name |
+| All JWT claims | various | All decoded JWT claims are also available |
+
+### Example Handler Usage
+
+```javascript
+const handler = (request, h) => {
+  const { userId, role, currentOrganisation } = request.auth.credentials;
+  
+  request.logger.debug(`User ${userId} with role ${role} from ${currentOrganisation}`);
+  
+  // Use credentials for authorization logic
+  if (role === 'CEO') {
+    // Allow access
+  }
+  
+  return h.response({ data: 'Protected data' });
+};
+```
+
+## Role-Based Permissions
+
+The API supports role-based access control. Common roles include:
+
+| Role | Code | Typical Permissions |
+|------|------|-------------------|
+| Chief Executive Officer | `CEO` | Full access to all operations |
+| Waste Officer | `WO` | Confirm bank details |
+
+<Note>
+Role permissions are configured via environment variables. Check `/permissions/config` endpoint to see the current permission configuration.
+</Note>
+
+## Error Responses
+
+### 401 Unauthorized
+
+Returned when the JWT token is missing, invalid, or expired:
+
+```json
+{
+  "statusCode": 401,
+  "error": "Unauthorized",
+  "message": "Missing authentication"
+}
+```
+
+Common causes:
+- Missing `Authorization` header
+- Malformed Bearer token
+- Expired token
+- Invalid signature
+- No JWKS keys found
+- Token issuer mismatch
+
+### 403 Forbidden
+
+Returned when the user is authenticated but lacks required permissions:
+
+```json
+{
+  "statusCode": 403,
+  "error": "Forbidden",
+  "message": "Insufficient permissions"
+}
+```
+
+<Warning>
+JWT tokens are verified on every request. Ensure your tokens are refreshed before expiry to avoid authentication failures.
+</Warning>
+
+## Security Considerations
+
+### Token Verification
+
+- The API uses **RS256** (RSA Signature with SHA-256) for asymmetric key verification
+- Public keys are fetched from the JWKS endpoint and cached
+- Signature verification happens on every request
+- Issuer claim is strictly validated against configuration
+
+### Best Practices
+
+1. **Store tokens securely** - Never expose JWT tokens in logs, URLs, or client-side code
+2. **Use HTTPS** - Always use HTTPS in production to prevent token interception
+3. **Refresh tokens** - Implement token refresh logic before expiry
+4. **Validate permissions** - Always check role-based permissions on the server side
+5. **Monitor logs** - Authorization headers are redacted in production logs for security
+
+### Log Redaction
+
+In production, sensitive headers are automatically redacted (from `src/config.js:74-76`):
+
+```javascript
+redact: {
+  default: isProduction
+    ? ['req.headers.authorization', 'req.headers.cookie', 'res.headers']
+    : ['req', 'res', 'responseTime']
+}
+```
+
+## Testing Authentication
+
+For local development with the Defra ID stub:
+
+<CodeGroup>
+```bash Get Token (stub)
+# Authenticate with the stub to get a token
+curl -X POST http://localhost:3200/cdp-defra-id-stub/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "test.user@example.com",
+    "password": "password"
+  }'
+```
+
+```bash Test Authenticated Endpoint
+# Use the token in subsequent requests
+TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+curl -X GET http://localhost:3001/documents/birmingham-city-council \
+  -H "Authorization: Bearer $TOKEN"
+```
+</CodeGroup>
+
+<Note>
+The authentication stub is only available in local and development environments. Production uses the actual Defra ID service.
+</Note>

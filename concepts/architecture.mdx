@@ -1,0 +1,216 @@
+---
+title: System Architecture
+description: Overview of the EPR LAPS Backend API architecture and design patterns
+---
+
+## Overview
+
+The EPR LAPS Backend API is built on **Hapi.js**, a robust Node.js framework designed for building scalable applications. The system follows a plugin-based architecture that promotes modularity, separation of concerns, and testability.
+
+## Core Architecture Pattern
+
+The application uses the **Hapi Plugin Architecture** to organize functionality into discrete, testable modules. Each plugin registers itself with the server and can extend the request lifecycle.
+
+### Server Initialization
+
+The server is initialized in `src/server.js:15-66` with the following plugins registered in order:
+
+```javascript
+await server.register([
+  authPlugin,           // JWT authentication with Defra ID
+  requestLogger,        // Automatic request logging
+  requestTracing,       // Trace header propagation
+  secureContext,        // CA certificate management
+  pulse,                // Graceful shutdown handlers
+  {
+    plugin: mongoDb,    // MongoDB connection pool
+    options: config.get('mongo')
+  },
+  router,               // API routes
+  accessControl         // Role-based authorization
+])
+```
+
+<Note>
+Plugin registration order matters. Authentication must be registered before authorization, and both must be registered before the router.
+</Note>
+
+## Hapi Plugin Architecture
+
+### Plugin Structure
+
+Every Hapi plugin follows a standard structure:
+
+```javascript
+export const myPlugin = {
+  name: 'plugin-name',
+  register: async (server, options) => {
+    // Plugin logic here
+  }
+}
+```
+
+### Request Lifecycle Hooks
+
+Plugins can tap into Hapi's request lifecycle using extension points:
+
+<Accordion title="Request Lifecycle Extension Points">
+- **onRequest** - Called at the beginning of the request, before authentication
+- **onPreAuth** - Before authentication is performed
+- **onPostAuth** - After authentication, ideal for authorization checks
+- **onPreHandler** - Before the route handler is called
+- **onPostHandler** - After the route handler completes
+- **onPreResponse** - Before the response is sent to the client
+</Accordion>
+
+## MongoDB Integration
+
+The MongoDB plugin (`src/common/helpers/mongodb.js`) provides database connectivity and distributed locking capabilities.
+
+### Connection Management
+
+The MongoDB plugin establishes a connection pool at server startup:
+
+```javascript
+const client = await MongoClient.connect(options.mongoUrl, {
+  ...options.mongoOptions
+})
+
+const db = client.db(databaseName)
+const locker = new LockManager(db.collection('mongo-locks'))
+```
+
+### Server and Request Decoration
+
+The plugin decorates both the server and request objects for easy access:
+
+<CodeGroup>
+```javascript Server Decoration
+server.mongoClient  // MongoClient instance
+server.db           // Database instance
+server.locker       // LockManager instance
+```
+
+```javascript Request Decoration
+request.db()        // Database instance (function)
+request.locker()    // LockManager instance (function)
+```
+</CodeGroup>
+
+<Info>
+Request decorations use `apply: true`, which means they're functions that return the value when called.
+</Info>
+
+### Distributed Locking
+
+The system uses `mongo-locks` for distributed locking to prevent race conditions in concurrent operations:
+
+```javascript
+const locker = new LockManager(db.collection('mongo-locks'))
+```
+
+The lock collection has an index on the `id` field for optimal performance:
+
+```javascript
+await db.collection('mongo-locks').createIndex({ id: 1 })
+```
+
+<Warning>
+Always use the locker when performing operations that require mutual exclusion across multiple API instances.
+</Warning>
+
+### Graceful Shutdown
+
+The MongoDB plugin registers a shutdown handler to cleanly close connections:
+
+```javascript
+server.events.on('stop', async () => {
+  if (!closed && client.topology?.isConnected()) {
+    await client.close(true)
+    closed = true
+  }
+})
+```
+
+## Configuration Management
+
+The application uses **Convict** for schema-based configuration with environment variable support:
+
+```javascript
+const config = convict({
+  mongo: {
+    mongoUrl: {
+      doc: 'URI for mongodb',
+      format: String,
+      default: 'mongodb://127.0.0.1:27017/',
+      env: 'MONGO_URI'
+    },
+    mongoOptions: {
+      retryWrites: {
+        default: false
+      },
+      readPreference: {
+        default: 'secondary'
+      }
+    }
+  }
+})
+```
+
+## Security Features
+
+The server is configured with security best practices (`src/server.js:20-36`):
+
+<CodeGroup>
+```javascript HTTP Security Headers
+routes: {
+  security: {
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: false
+    },
+    xss: 'enabled',
+    noSniff: true,
+    xframe: true
+  }
+}
+```
+
+```javascript Request Validation
+routes: {
+  validate: {
+    options: {
+      abortEarly: false  // Collect all validation errors
+    },
+    failAction  // Custom error handler
+  }
+}
+```
+</CodeGroup>
+
+## Request Flow
+
+1. **Request Received** - Server accepts incoming HTTP request
+2. **Request Tracing** - Trace ID extracted or generated
+3. **Request Logging** - Request details logged
+4. **Authentication** - JWT token validated (see [Authentication](/concepts/authentication))
+5. **Authorization** - Role-based access control applied (see [Authorization](/concepts/authorization))
+6. **Validation** - Request payload validated against schema
+7. **Route Handler** - Business logic executed
+8. **Response** - Response sent to client
+
+## Environment Support
+
+The application supports multiple environments:
+
+- `local` - Local development
+- `dev` - Development environment
+- `test` - Testing environment
+- `perf-test` - Performance testing
+- `ext-test` - External testing
+- `prod` - Production environment
+
+<Info>
+The environment is controlled via the `ENVIRONMENT` environment variable and affects logging, metrics, and security settings.
+</Info>
