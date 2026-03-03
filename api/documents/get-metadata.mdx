@@ -100,12 +100,12 @@ Users without the required permission will receive a 403 Forbidden response. All
 <CodeGroup>
 
 ```bash cURL
-curl -X GET "https://api.example.com/documents/ABC123" \
+curl -X GET "http://localhost:3001/documents/ABC123" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ```javascript JavaScript
-const response = await fetch('https://api.example.com/documents/ABC123', {
+const response = await fetch('http://localhost:3001/documents/ABC123', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer YOUR_TOKEN'
@@ -120,7 +120,7 @@ console.log(data);
 import requests
 
 response = requests.get(
-    'https://api.example.com/documents/ABC123',
+    'http://localhost:3001/documents/ABC123',
     headers={'Authorization': 'Bearer YOUR_TOKEN'}
 )
 

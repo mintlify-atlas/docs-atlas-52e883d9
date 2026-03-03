@@ -280,7 +280,7 @@ The API includes forward-proxy support using undici:
 import { fetch } from 'undici'
 
 // Automatically uses proxy if HTTP_PROXY env var is set
-const response = await fetch('https://api.example.com/data')
+const response = await fetch('http://localhost:3001/data')
 ```
 
 ## Troubleshooting

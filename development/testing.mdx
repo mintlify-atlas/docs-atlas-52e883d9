@@ -238,7 +238,7 @@ describe('API client', () => {
     
     const result = await myApiClient.getData()
     
-    expect(fetch).toHaveBeenCalledWith('https://api.example.com/data')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:3001/data')
     expect(result).toEqual({ data: 'test' })
   })
 })

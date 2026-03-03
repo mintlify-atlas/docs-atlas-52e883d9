@@ -47,7 +47,7 @@ The validation includes `stripUnknown: true`, which means any additional fields 
 <CodeGroup>
 
 ```bash cURL
-curl -X PUT 'https://api.example.com/bank-details' \
+curl -X PUT 'http://localhost:3001/bank-details' \
   -H 'Authorization: Bearer YOUR_JWT_TOKEN' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -59,7 +59,7 @@ curl -X PUT 'https://api.example.com/bank-details' \
 
 ```javascript JavaScript
 const response = await fetch(
-  'https://api.example.com/bank-details',
+  'http://localhost:3001/bank-details',
   {
     method: 'PUT',
     headers: {
