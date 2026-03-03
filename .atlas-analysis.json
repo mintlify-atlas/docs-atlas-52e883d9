@@ -1,0 +1,103 @@
+{
+  "projectType": "api-service",
+  "projectName": "EPR LAPS Backend",
+  "projectDescription": "Backend API service for the Extended Producer Responsibility Local Authority Payment System (EPR LAPS)",
+  "theme": "linden",
+  "primaryColor": "#00703c",
+  "lightColor": "#008938",
+  "darkColor": "#00552b",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/authentication",
+              "concepts/authorization"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/local-setup",
+              "development/configuration",
+              "development/proxy-setup",
+              "development/mongodb-locks",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment-variables",
+              "deployment/docker-compose"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Bank Details",
+            "pages": [
+              "api/bank-details/get-bank-details",
+              "api/bank-details/create-bank-details",
+              "api/bank-details/confirm-bank-details"
+            ]
+          },
+          {
+            "group": "Documents",
+            "pages": [
+              "api/documents/get-metadata",
+              "api/documents/get-document"
+            ]
+          },
+          {
+            "group": "Health",
+            "pages": [
+              "api/health"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT authentication with Defra ID integration",
+    "Role-based access control for bank details and documents",
+    "Bank account management for local authorities",
+    "Document storage and retrieval with metadata",
+    "MongoDB with distributed locking",
+    "Forward proxy support for external requests",
+    "CloudWatch metrics and distributed tracing",
+    "Health checks and monitoring"
+  ],
+  "publicApiSurface": [
+    "GET /bank-details/{localAuthority}",
+    "POST /bank-details",
+    "PUT /bank-details",
+    "GET /documents/{localAuthority}",
+    "GET /document/{id}",
+    "GET /health"
+  ]
+}
